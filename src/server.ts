@@ -22,6 +22,7 @@ import {
   getClient,
   resetClient,
   apiKeySource,
+  effectiveApiKey,
 } from "./mistral.js";
 import {
   saveArtifactFile,
@@ -31,6 +32,9 @@ import {
   TTS_MODEL,
   TTS_VOICE,
   voiceReferencePath,
+  saveVoiceReference,
+  saveCourseFile,
+  extractCourseText,
 } from "./tools.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -60,9 +64,16 @@ function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+const MAX_BODY_BYTES = 40 * 1024 * 1024; // 40 Mo (uploads base64 inclus)
+
 async function readBody(req: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new Error("Corps de requête trop volumineux (40 Mo max)");
+    chunks.push(chunk as Buffer);
+  }
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw) return {};
   try {
@@ -136,7 +147,7 @@ async function runPipeline(run: Run, task: string): Promise<void> {
  * Un échec d'artefact n'échoue pas la tâche.
  */
 async function produceArtifacts(run: Run): Promise<void> {
-  const artifacts: Artifact[] = [];
+  const artifacts: Artifact[] = [...(run.artifacts ?? [])];
   const outputOf = (name: string) =>
     run.steps.find((s) => s.agentName === name && s.output)?.output ?? "";
 
@@ -316,6 +327,21 @@ async function handleApi(
     return true;
   }
 
+  if (pathname === "/api/settings/voice-ref" && method === "POST") {
+    const body = await readBody(req);
+    if (typeof body.filename !== "string" || typeof body.contentBase64 !== "string") {
+      json(res, 400, { error: "Champs requis : 'filename' et 'contentBase64'" });
+      return true;
+    }
+    try {
+      const size = saveVoiceReference(body.filename, body.contentBase64);
+      json(res, 200, { ok: true, bytes: size, hasVoiceReference: true });
+    } catch (err) {
+      json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
   if (pathname === "/api/runs" && method === "GET") {
     json(res, 200, getRuns());
     return true;
@@ -345,9 +371,34 @@ async function handleApi(
       updatedAt: now,
       steps,
     };
+    let fullTask = task;
+    if (body.course && typeof body.course.name === "string" && typeof body.course.contentBase64 === "string") {
+      const apiKey = effectiveApiKey();
+      if (!apiKey) {
+        json(res, 503, { error: "Aucune clé API Mistral configurée (voir Paramètres) — nécessaire pour lire le cours" });
+        return true;
+      }
+      try {
+        const courseBuf = Buffer.from(body.course.contentBase64, "base64");
+        saveCourseFile(body.course.name, courseBuf);
+        const courseText = await extractCourseText(body.course.name, courseBuf, apiKey);
+        run.course = body.course.name;
+        fullTask = `${task}\n\n=== CONTENU DU COURS (${body.course.name}) ===\n${courseText}`;
+        run.artifacts = [
+          saveArtifactFile(
+            run.id,
+            { type: "text", name: body.course.name.replace(/\.[^.]+$/, "") + ".md", label: `Cours source extrait (${body.course.name})` },
+            courseText,
+          ),
+        ];
+      } catch (err) {
+        json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return true;
+      }
+    }
     saveRun(run);
     json(res, 201, run);
-    void runPipeline(run, task).catch((err) => {
+    void runPipeline(run, fullTask).catch((err) => {
       run.status = "error";
       run.updatedAt = new Date().toISOString();
       saveRun(run);
