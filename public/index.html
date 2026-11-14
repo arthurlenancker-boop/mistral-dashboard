@@ -36,6 +36,15 @@
   .chat-form { display:flex; gap:8px; padding:14px 20px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; }
   .empty { color:var(--muted); margin:auto; text-align:center; }
+  .artifact { padding:8px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; font-size:13px; }
+  .artifact a { color:var(--accent); }
+  .artifact.error { border-color:#3a1414; color:#ff5c5c; }
+  .artifact audio { width:100%; margin-top:6px; }
+  .settings { max-width:520px; }
+  .settings input { width:100%; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; margin:6px 0 10px; }
+  .settings .warn { font-size:12px; color:#ffb020; margin-top:10px; line-height:1.4; }
+  .settings .ok { color:#3ecf5e; } .settings .ko { color:#ff5c5c; }
+  button.ghost { background:none; border:1px solid var(--border); color:var(--muted); padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
   /* --- Vue graphe animée du pipeline --- */
   .graph { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; margin-bottom:16px; }
   .graph svg { width:100%; height:auto; display:block; }
@@ -69,6 +78,7 @@
   <main class="main">
     <div class="topbar">
       <button class="primary" id="new-task">+ Nouvelle tâche</button>
+      <button class="ghost" id="open-settings">⚙ Paramètres</button>
       <span id="view-title" style="color:var(--muted);font-size:13px"></span>
     </div>
     <div class="content" id="content">
@@ -171,7 +181,18 @@ async function showRun(id, poll) {
   stopPolling();
   const render = (run) => {
     $("#view-title").textContent = run.task;
-    $("#content").innerHTML = graphSvg(run) + run.steps.map((s) => `
+    const artifacts = (run.artifacts ?? []).map((a) => {
+      const url = `/api/runs/${run.id}/artifacts/${encodeURIComponent(a.name)}`;
+      if (a.error) return `<div class="artifact error">${esc(a.label)} — échec : ${esc(a.error)}</div>`;
+      if (a.type === "audio")
+        return `<div class="artifact"><strong>${esc(a.label)}</strong><br><audio controls preload="none" src="${url}"></audio></div>`;
+      if (a.type === "video")
+        return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
+      return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
+    }).join("");
+    $("#content").innerHTML = graphSvg(run)
+      + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
+      + run.steps.map((s) => `
       <div class="step">
         <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : ""}
@@ -189,13 +210,90 @@ async function showRun(id, poll) {
   if (poll) pollTimer = setInterval(tick, 2000);
 }
 
+$("#open-settings").onclick = async () => {
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = "Paramètres";
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>🔑 Clé API Mistral</h3>
+    <div id="settings-status" style="font-size:13px;color:var(--muted)">chargement…</div>
+    <input id="apikey-input" type="password" placeholder="mstrl-…" autocomplete="off" />
+    <button class="primary" id="save-key">Enregistrer la clé</button>
+    <button class="ghost" id="del-key">Supprimer la clé enregistrée</button>
+    <p class="warn">⚠ La clé enregistrée ici est stockée en clair dans <code>data/settings.json</code> (gitignoré, local uniquement). Préférez la variable <code>MISTRAL_API_KEY</code> (.env) pour la production. Ne partagez jamais votre clé. La clé n'est jamais renvoyée par l'API (statut masqué uniquement).</p>
+    <h3 style="margin-top:14px">🔊 Voix (TTS)</h3>
+    <div id="tts-status" style="font-size:13px;color:var(--muted)"></div>
+    <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">🎙️ Importer une voix de référence (.mp3/.wav, 25 Mo max) — remplace <code>data/voice-ref.mp3</code>, utilisée en clonage zero-shot :</label>
+    <input id="voice-file" type="file" accept=".mp3,.wav" style="font-size:13px;color:var(--muted)" />
+    <div style="margin-top:8px"><button class="primary" id="upload-voice">Uploader la voix</button></div>
+    <div id="voice-status" style="font-size:12px;margin-top:6px"></div>
+  </div>`;
+  const refresh = async () => {
+    const { data } = await api("/api/settings");
+    $("#settings-status").innerHTML = data.hasKey
+      ? `<span class="ok">✔ Clé configurée</span> (source : ${data.source === "env" ? "variable d'environnement" : "paramètres"})`
+      : `<span class="ko">✘ Aucune clé configurée</span> — les appels API échoueront (503)`;
+    $("#tts-status").textContent =
+      `Modèle TTS : ${data.ttsModel} · Voix : ${data.ttsVoice ?? (data.hasVoiceReference ? "clonage zero-shot depuis data/voice-ref.mp3" : "aucune")}`;
+  };
+  $("#save-key").onclick = async () => {
+    const v = $("#apikey-input").value.trim();
+    if (!v) return;
+    const { status, data } = await api("/api/settings", { method: "POST", body: { apiKey: v } });
+    if (status !== 200) { alert(data.error ?? "Erreur"); return; }
+    $("#apikey-input").value = "";
+    await refresh();
+  };
+  $("#del-key").onclick = async () => { await api("/api/settings", { method: "DELETE" }); await refresh(); };
+  $("#upload-voice").onclick = async () => {
+    const f = $("#voice-file").files[0];
+    if (!f) { alert("Choisissez un fichier .mp3 ou .wav"); return; }
+    const b64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1]);
+      r.onerror = reject;
+      r.readAsDataURL(f);
+    });
+    const { status, data } = await api("/api/settings/voice-ref", { method: "POST", body: { filename: f.name, contentBase64: b64 } });
+    $("#voice-status").textContent = status === 200 ? `✔ Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)` : `✘ ${data.error ?? "Erreur"}`;
+    $("#voice-status").style.color = status === 200 ? "#3ecf5e" : "#ff5c5c";
+    await refresh();
+  };
+  await refresh();
+  refreshSidebar();
+};
+
 $("#new-task").onclick = async () => {
-  const task = prompt("Décrivez la vidéo de cours à produire :");
-  if (!task) return;
-  const { status, data } = await api("/api/runs", { method: "POST", body: { task } });
-  if (status !== 201) { alert(data.error ?? "Erreur"); return; }
-  await refreshSidebar();
-  showRun(data.id, true);
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = "Nouvelle tâche";
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>▶ Nouvelle vidéo de cours</h3>
+    <textarea id="task-input" rows="4" placeholder="Décrivez la vidéo à produire (sujet, public, durée, style)…" style="width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
+    <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">📎 Joindre le cours (.md/.txt direct, ou .pdf/.jpg/.png via OCR Mistral, 20 Mo max) — le texte extrait est injecté dans le brief des agents :</label>
+    <input id="course-file" type="file" accept=".md,.txt,.pdf,.jpg,.jpeg,.png" style="font-size:13px;color:var(--muted)" />
+    <div style="margin-top:12px"><button class="primary" id="launch-task">Lancer le pipeline</button></div>
+  </div>`;
+  refreshSidebar();
+  $("#launch-task").onclick = async () => {
+    const task = $("#task-input").value.trim();
+    if (!task) { alert("Décrivez d'abord la tâche"); return; }
+    const body = { task };
+    const f = $("#course-file").files[0];
+    if (f) {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1]);
+        r.onerror = reject;
+        r.readAsDataURL(f);
+      });
+      body.course = { name: f.name, contentBase64: b64 };
+    }
+    const { status, data } = await api("/api/runs", { method: "POST", body });
+    if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+    await refreshSidebar();
+    showRun(data.id, true);
+  };
 };
 
 $("#agents").onclick = async (e) => {

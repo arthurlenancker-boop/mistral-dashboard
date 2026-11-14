@@ -40,10 +40,10 @@ l'utilisateur :
 
 | Agent | Skills mobilisés |
 |---|---|
-| Chef de projet | — (brief structuré, règle d'or 1 idée = 1 scène = 1 phrase) |
-| Scénariste | `video-cours-production` (storyboard d'abord, prompts structurés avec beats horodatés, chapitrage, itération par corrections ciblées) + `explainer-video` (arc Problème → Enjeux → Solution → Comment → Payoff, script-first à ~2,3 mots/s, une seule analogie, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) |
+| Chef de projet | `brainstorming` + `grill-with-docs` (clarifier objectifs/non-objectifs/contraintes avant le brief) + `writing-plans` (mini-plan numéroté avant dispatch). Règle **adaptée TDA/H & TSA** (remplace « 1 idée = 1 scène = 1 phrase ») : 1 idée par scène, scènes ≈ 5–8 s, ancrage visuel dédié, transitions explicites, récapitulatifs, charge cognitive limitée |
+| Scénariste | `video-cours-production` + `explainer-video` (storyboard d'abord, arc Problème → Enjeux → Solution → Comment → Payoff, beats horodatés, chapitrage, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) — avec la règle TDA/H-TSA ci-dessus |
 | Voix | `voxtral-narration` (normalisation du texte, `phoneme_hints`, tags inline `[emotion]`/`[pace]`, disfluences, régénération par segment) + `tts` (mode timeline, alignement SRT/audio, durées réelles par segment) |
-| Monteur | famille `remotion-*` : `remotion-best-practices` (animation par code frame-deterministic), `remotion-create`/`remotion-markup` (`useCurrentFrame`/`interpolate`, `useVideoConfig`, `<Sequence>`, `staticFile()`, durées dérivées des données), `remotion-captions` (type `Caption`, synchro sur l'audio), `remotion-render`/`remotion-studio` (vérification frame par frame avant encodage) |
+| Monteur | famille `remotion-*` (code frame-deterministic, `useCurrentFrame`/`interpolate`, `<Sequence>`, `staticFile()`, captions `Caption` synchronisées, `remotion still` avant encodage) + styles au choix : `whiteboard-animation` (draw-on SVG + main marqueur), `diagram-animation` (révélation nœuds → arêtes → labels, focus+contexte), `isometric-animation` (2,5D, ombrage par face, lift en Z) + rendu statique `prefers-reduced-motion` |
 | QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
 ## API locale
@@ -55,6 +55,39 @@ l'utilisateur :
 | DELETE | `/api/agents/:id` | Supprimer un agent |
 | POST | `/api/agents/:id/chat` | Chat direct avec un agent |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
+| GET | `/api/runs/:id/artifacts/:file` | Télécharger un livrable (MP3, JSON, MD) |
+
+## Livrables (artefacts)
+
+Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/` (gitignoré) et les affiche dans l'UI (section « 🎁 Livrables ») :
+
+- `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
+- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`) à partir de la sortie de l'agent Voix
+- `montage.md` — plan de montage produit par l'agent Monteur
+- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps ; la **durée est calculée depuis le contenu** via le `calculateMetadata` exporté par l'agent — somme des durées audio réelles, jamais une valeur fixe ; `RENDER_DURATION_FRAMES` n'est qu'un fallback, `RENDER_VIDEO=0` désactive le rendu). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2`.
+
+Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
+
+## Paramètres (clé API dans le dashboard)
+
+Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'UI. La clé est stockée dans `data/settings.json` (gitignoré) et n'est jamais renvoyée par l'API (statut masqué). Priorité : `MISTRAL_API_KEY` (env) > clé des paramètres. Sans aucune clé, le serveur démarre mais les appels renvoient `503` avec un message explicite.
+
+## Voix clonée (Voxtral)
+
+- Par défaut, la synthèse utilise le **clonage zero-shot** depuis `data/voice-ref.mp3` (champ `ref_audio`, base64) — fichier gitignoré.
+- **Changer de voix sans toucher au serveur** : dans ⚙ Paramètres → « Importer une voix de référence », uploadez votre propre MP3/WAV (25 Mo max, voix claire d'un seul locuteur) via `POST /api/settings/voice-ref`. Le prochain TTS l'utilisera.
+- Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
+- Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
+
+## Joindre un cours à une tâche
+
+Au lancement d'une tâche (« + Nouvelle tâche »), joignez un fichier de cours :
+
+- **.md / .txt** : texte repris tel quel (2 Mo max)
+- **.pdf / .jpg / .jpeg / .png** (20 Mo max) : texte extrait via l'**API OCR Mistral** (`POST /v1/ocr`, `mistral-ocr-latest`) — idéal pour les feuilles scannées/photos
+- **OneNote** : exportez la page en `.md`/`.txt` (Fichier → Exporter) ou copiez-collez le texte dans un `.txt`, puis joignez-le
+
+Le texte extrait est enregistré dans `data/courses/`, injecté dans le brief initial du pipeline (les agents travaillent directement dessus) et ajouté aux livrables téléchargeables.
 | GET | `/api/runs` | Liste des exécutions |
 | GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
 

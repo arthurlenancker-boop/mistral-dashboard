@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 data/*.json
+data/artifacts/
+data/voice-ref.mp3
+data/courses/
+data/render/

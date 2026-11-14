@@ -1,7 +1,6 @@
 import http from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, extname } from "node:path";
-import { Mistral } from "@mistralai/mistralai";
 import { SEED_AGENTS, type Agent } from "./agents.js";
 import {
   getAgents,
@@ -11,22 +10,43 @@ import {
   getRun,
   saveRun,
   newRunId,
+  getSettings,
+  saveSettings,
   type Run,
   type RunStep,
+  type Artifact,
 } from "./store.js";
-import { complete, buildBrief } from "./mistral.js";
+import {
+  complete,
+  buildBrief,
+  getClient,
+  resetClient,
+  apiKeySource,
+  effectiveApiKey,
+} from "./mistral.js";
+import {
+  saveArtifactFile,
+  readArtifactFile,
+  artifactMime,
+  artifactFilePath,
+  synthesizeSpeech,
+  TTS_MODEL,
+  TTS_VOICE,
+  voiceReferencePath,
+  saveVoiceReference,
+  saveCourseFile,
+  extractCourseText,
+} from "./tools.js";
+import { extractRemotionCode, renderVideoToFile } from "./render.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const PUBLIC_DIR = join(process.cwd(), "public");
 
-if (!process.env.MISTRAL_API_KEY) {
-  console.error(
-    "Erreur : MISTRAL_API_KEY est manquante. Copiez .env.example en .env et renseignez votre clé API Mistral.",
+if (!process.env.MISTRAL_API_KEY && !getSettings().apiKey) {
+  console.warn(
+    "Avertissement : aucune clé API Mistral. Le serveur démarre mais les appels API échoueront jusqu'à configuration (variable MISTRAL_API_KEY ou page Paramètres du dashboard).",
   );
-  process.exit(1);
 }
-
-const client = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -46,9 +66,16 @@ function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+const MAX_BODY_BYTES = 40 * 1024 * 1024; // 40 Mo (uploads base64 inclus)
+
 async function readBody(req: http.IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new Error("Corps de requête trop volumineux (40 Mo max)");
+    chunks.push(chunk as Buffer);
+  }
   const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw) return {};
   try {
@@ -107,6 +134,104 @@ async function runPipeline(run: Run, task: string): Promise<void> {
   }
   run.status = "done";
   run.updatedAt = new Date().toISOString();
+  saveRun(run);
+  try {
+    await produceArtifacts(run);
+  } catch (err) {
+    console.error("Erreur production d'artefacts:", err);
+  }
+}
+
+/**
+ * Produit les livrables d'une tâche terminée : transcription JSON complète,
+ * voix off MP3 (API speech Mistral) à partir de la sortie de l'agent Voix,
+ * et plan de montage Markdown à partir de la sortie de l'agent Monteur.
+ * Un échec d'artefact n'échoue pas la tâche.
+ */
+async function produceArtifacts(run: Run): Promise<void> {
+  const artifacts: Artifact[] = [...(run.artifacts ?? [])];
+  const outputOf = (name: string) =>
+    run.steps.find((s) => s.agentName === name && s.output)?.output ?? "";
+
+  artifacts.push(
+    saveArtifactFile(
+      run.id,
+      { type: "json", name: "transcript.json", label: "Transcription complète (JSON)" },
+      JSON.stringify(
+        {
+          task: run.task,
+          status: run.status,
+          createdAt: run.createdAt,
+          steps: run.steps.map((s) => ({
+            agent: s.agentName,
+            status: s.status,
+            output: s.output ?? null,
+            error: s.error ?? null,
+          })),
+        },
+        null,
+        2,
+      ),
+    ),
+  );
+
+  const voixText = outputOf("Voix");
+  if (voixText) {
+    try {
+      const audio = await synthesizeSpeech(voixText);
+      artifacts.push(
+        saveArtifactFile(
+          run.id,
+          { type: "audio", name: "voix-off.mp3", label: "Voix off (MP3 — API speech Mistral)" },
+          audio,
+        ),
+      );
+    } catch (err) {
+      artifacts.push({
+        type: "audio",
+        name: "voix-off.mp3",
+        label: "Voix off (MP3 — API speech Mistral)",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const montage = outputOf("Monteur");
+  if (montage) {
+    artifacts.push(
+      saveArtifactFile(
+        run.id,
+        { type: "text", name: "montage.md", label: "Plan de montage (Markdown)" },
+        montage,
+      ),
+    );
+  }
+
+  // Rendu MP4 réel depuis le code Remotion du Monteur (désactivable via RENDER_VIDEO=0)
+  if (montage && process.env.RENDER_VIDEO !== "0") {
+    const code = extractRemotionCode(montage);
+    if (code) {
+      try {
+        const workDir = join(process.cwd(), "data", "render", run.id);
+        const outFile = join(workDir, "video.mp4");
+        mkdirSync(workDir, { recursive: true });
+        renderVideoToFile(workDir, code, outFile);
+        const target = artifactFilePath(run.id, "video.mp4");
+        cpSync(outFile, target);
+        artifacts.push({ type: "video", name: "video.mp4", label: "Vidéo finale (MP4, rendu Remotion)" });
+      } catch (err) {
+        console.error("Erreur rendu MP4:", err);
+        artifacts.push({
+          type: "video",
+          name: "video.mp4",
+          label: "Vidéo finale (MP4, rendu Remotion)",
+          error: err instanceof Error ? err.message.split("\n")[0] : String(err),
+        });
+      }
+    }
+  }
+
+  run.artifacts = artifacts;
   saveRun(run);
 }
 
@@ -175,7 +300,7 @@ async function handleApi(
       return true;
     }
     try {
-      const answer = await client.chat.complete({
+      const answer = await getClient().chat.complete({
         model: "mistral-large-4",
         messages: [
           { role: "system", content: agent.systemPrompt },
@@ -186,9 +311,59 @@ async function handleApi(
         reply: answer.choices?.[0]?.message?.content ?? "",
       });
     } catch (err) {
-      json(res, 500, {
+      const status = apiKeySource() === "none" ? 503 : 500;
+      json(res, status, {
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/settings" && method === "GET") {
+    json(res, 200, {
+      hasKey: apiKeySource() !== "none",
+      source: apiKeySource(),
+      ttsModel: TTS_MODEL,
+      ttsVoice: TTS_VOICE || null,
+      hasVoiceReference: voiceReferencePath() !== null,
+    });
+    return true;
+  }
+
+  if (pathname === "/api/settings" && method === "POST") {
+    const body = await readBody(req);
+    if (typeof body.apiKey !== "string" || !body.apiKey.trim()) {
+      json(res, 400, { error: "Le champ 'apiKey' est requis" });
+      return true;
+    }
+    const settings = getSettings();
+    settings.apiKey = body.apiKey.trim();
+    saveSettings(settings);
+    resetClient();
+    json(res, 200, { ok: true, source: apiKeySource() });
+    return true;
+  }
+
+  if (pathname === "/api/settings" && method === "DELETE") {
+    const settings = getSettings();
+    delete settings.apiKey;
+    saveSettings(settings);
+    resetClient();
+    json(res, 200, { ok: true, source: apiKeySource() });
+    return true;
+  }
+
+  if (pathname === "/api/settings/voice-ref" && method === "POST") {
+    const body = await readBody(req);
+    if (typeof body.filename !== "string" || typeof body.contentBase64 !== "string") {
+      json(res, 400, { error: "Champs requis : 'filename' et 'contentBase64'" });
+      return true;
+    }
+    try {
+      const size = saveVoiceReference(body.filename, body.contentBase64);
+      json(res, 200, { ok: true, bytes: size, hasVoiceReference: true });
+    } catch (err) {
+      json(res, 400, { error: err instanceof Error ? err.message : String(err) });
     }
     return true;
   }
@@ -222,14 +397,62 @@ async function handleApi(
       updatedAt: now,
       steps,
     };
+    let fullTask = task;
+    if (body.course && typeof body.course.name === "string" && typeof body.course.contentBase64 === "string") {
+      const apiKey = effectiveApiKey();
+      if (!apiKey) {
+        json(res, 503, { error: "Aucune clé API Mistral configurée (voir Paramètres) — nécessaire pour lire le cours" });
+        return true;
+      }
+      try {
+        const courseBuf = Buffer.from(body.course.contentBase64, "base64");
+        saveCourseFile(body.course.name, courseBuf);
+        const courseText = await extractCourseText(body.course.name, courseBuf, apiKey);
+        run.course = body.course.name;
+        fullTask = `${task}\n\n=== CONTENU DU COURS (${body.course.name}) ===\n${courseText}`;
+        run.artifacts = [
+          saveArtifactFile(
+            run.id,
+            { type: "text", name: body.course.name.replace(/\.[^.]+$/, "") + ".md", label: `Cours source extrait (${body.course.name})` },
+            courseText,
+          ),
+        ];
+      } catch (err) {
+        json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        return true;
+      }
+    }
     saveRun(run);
     json(res, 201, run);
-    void runPipeline(run, task).catch((err) => {
+    void runPipeline(run, fullTask).catch((err) => {
       run.status = "error";
       run.updatedAt = new Date().toISOString();
       saveRun(run);
       console.error("Erreur pipeline:", err);
     });
+    return true;
+  }
+
+  const artifactMatch = pathname.match(/^\/api\/runs\/([^/]+)\/artifacts\/([^/]+)$/);
+  if (artifactMatch && method === "GET") {
+    const runId = decodeURIComponent(artifactMatch[1]);
+    const name = decodeURIComponent(artifactMatch[2]);
+    const run = getRun(runId);
+    if (!run) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    const content = readArtifactFile(runId, name);
+    if (!content) {
+      json(res, 404, { error: "Artefact introuvable" });
+      return true;
+    }
+    res.writeHead(200, {
+      "Content-Type": artifactMime(name),
+      "Content-Disposition": `attachment; filename="${name}"`,
+      "Cache-Control": "no-store",
+    });
+    res.end(content);
     return true;
   }
 
