@@ -4,68 +4,279 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Mistral Agents Dashboard</title>
+<title>Mistral Agents Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath fill=%27%23ff7000%27 d=%27M8 1l7 7-7 7-7-7z%27/%3E%3C/svg%3E" />
 <style>
-  :root { --bg:#0f1115; --panel:#171b22; --border:#262c37; --text:#e6e9ef; --muted:#8b93a3; --accent:#ff7000; }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; display:flex; height:100vh; }
-  .sidebar { width:260px; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; }
-  .sidebar h1 { font-size:15px; padding:16px; border-bottom:1px solid var(--border); }
-  .sidebar section { padding:12px 16px; border-bottom:1px solid var(--border); overflow-y:auto; }
-  .sidebar h2 { font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:8px; letter-spacing:.05em; }
-  .agent-item { padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
-  .agent-item:hover, .agent-item.active { background:#1f2530; }
-  .agent-item .del { color:var(--muted); border:none; background:none; cursor:pointer; font-size:14px; }
-  .run-item { padding:8px 10px; border-radius:8px; cursor:pointer; font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .run-item:hover, .run-item.active { background:#1f2530; color:var(--text); }
-  .badge { font-size:10px; padding:2px 6px; border-radius:10px; }
-  .badge.running { background:#3b2f00; color:#ffb020; }
-  .badge.done { background:#12331a; color:#3ecf5e; }
-  .badge.error { background:#3a1414; color:#ff5c5c; }
-  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  .topbar { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center; }
-  button.primary { background:var(--accent); color:#fff; border:none; padding:9px 16px; border-radius:8px; font-weight:600; cursor:pointer; }
-  .content { flex:1; overflow-y:auto; padding:20px; }
-  .step { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px; }
-  .step h3 { font-size:14px; display:flex; gap:10px; align-items:center; margin-bottom:8px; }
-  .step pre { white-space:pre-wrap; font-size:13px; line-height:1.5; color:#c8cdd8; font-family:inherit; }
-  .chat { display:flex; flex-direction:column; height:100%; }
-  .chat-log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:10px; }
-  .msg { max-width:75%; padding:10px 14px; border-radius:12px; white-space:pre-wrap; font-size:14px; line-height:1.5; }
-  .msg.user { align-self:flex-end; background:var(--accent); color:#fff; }
-  .msg.assistant { align-self:flex-start; background:var(--panel); border:1px solid var(--border); }
-  .chat-form { display:flex; gap:8px; padding:14px 20px; border-top:1px solid var(--border); }
-  .chat-form input { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; }
-  .empty { color:var(--muted); margin:auto; text-align:center; }
-  .artifact { padding:8px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; font-size:13px; }
-  .artifact a { color:var(--accent); }
-  .artifact.error { border-color:#3a1414; color:#ff5c5c; }
-  .artifact audio { width:100%; margin-top:6px; }
-  .settings { max-width:520px; }
-  .settings input { width:100%; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; margin:6px 0 10px; }
-  .settings .warn { font-size:12px; color:#ffb020; margin-top:10px; line-height:1.4; }
-  .settings .ok { color:#3ecf5e; } .settings .ko { color:#ff5c5c; }
-  button.ghost { background:none; border:1px solid var(--border); color:var(--muted); padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
-  /* --- Vue graphe animée du pipeline --- */
-  .graph { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; margin-bottom:16px; }
-  .graph svg { width:100%; height:auto; display:block; }
-  .edge { fill:none; stroke:var(--border); stroke-width:2; stroke-dasharray:6 5; }
-  .edge.lit { stroke:var(--accent); stroke-dasharray:none; }
-  .node .ring { fill:#10141b; stroke:var(--border); stroke-width:2; }
-  .node.active .ring { stroke:var(--accent); animation:pulse 0.9s ease-in-out infinite; }
-  .node.done .ring { stroke:#3ecf5e; }
-  .node.error .ring { stroke:#ff5c5c; }
-  .node .bot { stroke:#8b93a3; fill:#8b93a3; stroke-width:2.5; stroke-linecap:round; animation:bob 1.4s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
-  .node.active .bot { stroke:var(--accent); fill:var(--accent); animation-duration:0.45s; }
-  .node.done .bot { stroke:#3ecf5e; fill:#3ecf5e; animation:none; }
-  .node.error .bot { stroke:#ff5c5c; fill:#ff5c5c; animation:none; }
-  .node text { fill:var(--text); font-size:11px; text-anchor:middle; font-family:inherit; }
-  @keyframes bob { 50% { transform:translateY(-4px); } }
-  @keyframes pulse { 50% { stroke-opacity:0.25; } }
+  /* Polices auto-hébergées (aucune dépendance externe) */
+  @font-face { font-family: "Inter"; src: url("/fonts/Inter-400.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "Bricolage Grotesque"; src: url("/fonts/BricolageGrotesque-700.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "JetBrains Mono"; src: url("/fonts/JetBrainsMono-400.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  :root {
+    --bg: #f5f3ee;
+    --panel: #ffffff;
+    --panel-2: #faf8f4;
+    --border: #e4e1d8;
+    --text: #1a1b1f;
+    --muted: #716c60;
+    --accent: #ff7000;
+    --accent-ink: #d95f00;
+    --accent-soft: rgba(255, 112, 0, 0.12);
+    --ok: #1a9e4b;
+    --ok-soft: rgba(26, 158, 75, 0.12);
+    --err: #d64545;
+    --err-soft: rgba(214, 69, 69, 0.1);
+    --warn: #b07a08;
+    --warn-soft: rgba(255, 176, 32, 0.16);
+    --code: #edebe4;
+    --shadow: 0 1px 2px rgba(26, 22, 12, 0.05), 0 4px 14px rgba(26, 22, 12, 0.04);
+    --radius: 12px;
+    --font-body: "Inter", system-ui, sans-serif;
+    --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { color-scheme: light; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+    display: flex; height: 100vh; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv01", "ss03", "zero";
+  }
+  ::selection { background: var(--accent-soft); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d4d0c5; border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  button { font-family: inherit; }
+
+  .sidebar {
+    width: 264px; flex-shrink: 0; background: #f0eee8;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .sidebar h1 {
+    font-family: var(--font-display); font-size: 17px; font-weight: 700;
+    letter-spacing: -0.022em; padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 9px;
+  }
+  .sidebar h1 .logo { color: var(--accent); font-size: 14px; }
+  .sidebar section { padding: 12px 12px; border-bottom: 1px solid var(--border); overflow-y: auto; }
+  .sidebar section:last-of-type { border-bottom: none; flex: 1; }
+  .sidebar h2 {
+    font-size: 11.5px; font-weight: 600; color: var(--muted);
+    margin: 2px 2px 8px; letter-spacing: 0.02em;
+    font-family: var(--font-mono); text-transform: lowercase;
+  }
+  .agent-item, .run-item {
+    padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    border: 1px solid transparent; transition: background 0.15s ease, border-color 0.15s ease;
+    font-size: 13.5px;
+  }
+  .agent-item:hover, .run-item:hover { background: var(--panel-2); }
+  .agent-item.active, .run-item.active { background: var(--accent-soft); border-color: rgba(255, 112, 0, 0.4); }
+  .agent-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .agent-name { font-weight: 500; }
+  .agent-role { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-item .del {
+    color: var(--muted); border: none; background: none; cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+  }
+  .agent-item .del:hover { color: var(--err); background: var(--err-soft); }
+  .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .run-item.active { color: var(--text); }
+  .badge {
+    font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    font-family: var(--font-mono); flex-shrink: 0; font-feature-settings: "tnum";
+  }
+  .badge.running { background: var(--warn-soft); color: var(--warn); }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.error { background: var(--err-soft); color: var(--err); }
+  .badge.pending { background: rgba(113, 108, 96, 0.12); color: var(--muted); }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    padding: 12px 22px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 10px; align-items: center; background: var(--panel);
+  }
+  #view-title {
+    font-family: var(--font-display); font-size: 15.5px; font-weight: 600;
+    letter-spacing: -0.012em; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  button.primary {
+    background: var(--accent); color: #fff; border: none; padding: 9px 16px;
+    border-radius: 8px; font-weight: 600; font-size: 13.5px; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(217, 95, 0, 0.35);
+    transition: filter 0.15s ease, transform 0.08s ease;
+  }
+  button.primary:hover { filter: brightness(1.06); }
+  button.primary:active, button.ghost:active { transform: scale(0.97); }
+  button.primary:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  button.ghost:hover { color: var(--text); border-color: #cfcabb; background: var(--panel-2); }
+
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+  .step {
+    background: var(--panel); border: 1px solid #eceade;
+    border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+    box-shadow: var(--shadow);
+  }
+  .step h3 {
+    font-family: var(--font-display); font-size: 14.5px; font-weight: 600;
+    display: flex; gap: 10px; align-items: center; margin-bottom: 8px; letter-spacing: -0.01em;
+  }
+  .step pre {
+    white-space: pre-wrap; font-size: 13px; line-height: 1.6;
+    color: #3d3a33; font-family: var(--font-body);
+  }
+
+  .chat { display: flex; flex-direction: column; height: 100%; }
+  .chat-log { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .msg {
+    max-width: 72%; padding: 10px 14px; border-radius: 14px;
+    white-space: pre-wrap; font-size: 14px; line-height: 1.55;
+  }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; box-shadow: var(--shadow); }
+  .chat-form { display: flex; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border); background: var(--panel); }
+  .chat-form input, .settings input, .settings textarea {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 13px; border-radius: 8px; font-size: 14px; font-family: inherit;
+    transition: border-color 0.15s ease;
+  }
+  .chat-form input:focus, .settings input:focus, .settings textarea:focus { border-color: var(--accent); outline: none; }
+  .empty { color: var(--muted); margin: auto; text-align: center; max-width: 340px; line-height: 1.6; }
+  .empty strong { color: var(--text); font-family: var(--font-display); display: block; margin-bottom: 6px; font-size: 20px; letter-spacing: -0.022em; }
+  .hero { max-width: 620px; }
+  .hero p { font-size: 13.5px; }
+  .hero-graph { margin-bottom: 20px; padding: 18px 10px 8px; }
+  .how { text-align: left; margin: 14px auto 0; max-width: 480px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+  .how b { color: var(--text); font-weight: 600; }
+  .hero-hint { margin-top: 14px; font-size: 12.5px; }
+
+  /* --- Graphe animé du pipeline + règle de timeline --- */
+  .graph {
+    background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 10px 6px; margin-bottom: 18px;
+    box-shadow: var(--shadow);
+  }
+  .graph svg { width: 100%; height: auto; display: block; }
+  .ruler line { stroke: var(--border); stroke-width: 1; }
+  .ruler text { fill: var(--muted); font-size: 9px; font-family: var(--font-mono); font-feature-settings: "tnum"; }
+  .edge { fill: none; stroke: #d8d4c9; stroke-width: 2; stroke-dasharray: 6 5; }
+  .edge.lit { stroke: var(--accent); stroke-dasharray: none; filter: drop-shadow(0 0 4px rgba(255, 112, 0, 0.5)); }
+  .edge.flow { stroke: var(--accent); stroke-dasharray: 7 7; animation: march 0.55s linear infinite; filter: drop-shadow(0 0 4px rgba(255, 112, 0, 0.5)); }
+  @keyframes march { to { stroke-dashoffset: -14; } }
+  .arrow-head { fill: #c9c4b8; }
+  .check { fill: none; stroke: var(--ok); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .node .ring { fill: var(--panel); stroke: var(--border); stroke-width: 2; transition: stroke 0.3s ease; }
+  .node.active .ring { stroke: var(--accent); animation: pulse 0.9s ease-in-out infinite; }
+  .node.done .ring { stroke: var(--ok); }
+  .node.error .ring { stroke: var(--err); }
+  .node .bot {
+    stroke: #a39d8d; fill: #a39d8d; stroke-width: 2.5; stroke-linecap: round;
+    animation: bob 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center;
+    transition: stroke 0.3s ease, fill 0.3s ease;
+  }
+  .node.active .bot { stroke: var(--accent); fill: var(--accent); animation-duration: 0.45s; }
+  .node.done .bot { stroke: var(--ok); fill: var(--ok); animation: none; }
+  .node.error .bot { stroke: var(--err); fill: var(--err); animation: none; }
+  .node text { fill: var(--text); font-size: 11.5px; text-anchor: middle; font-family: var(--font-display); font-weight: 600; }
+  .node .node-role { fill: var(--muted); font-size: 8.5px; font-family: var(--font-body); font-weight: 400; }
+  @keyframes bob { 50% { transform: translateY(-4px); } }
+  @keyframes pulse { 50% { stroke-opacity: 0.25; } }
+  .msg-dot { fill: var(--accent); }
+
+  /* --- Timeline façon banc de montage --- */
+  .timeline {
+    background: var(--panel); border: 1px solid #eceade; border-radius: var(--radius);
+    padding: 10px 10px 4px; margin-bottom: 18px; box-shadow: var(--shadow);
+  }
+  .timeline svg { width: 100%; height: auto; display: block; }
+  .tl-ruler line { stroke: var(--border); }
+  .tl-ruler text { fill: var(--muted); font-size: 9px; font-family: var(--font-mono); font-feature-settings: "tnum"; }
+  .tl-lane { stroke: #f0ede4; stroke-width: 1; }
+  .tl-clip { rx: 4; stroke: rgba(26,22,12,0.08); }
+  .tl-clip.pending { fill: #eceadf; }
+  .tl-clip.running { fill: var(--accent); }
+  .tl-clip.done { fill: var(--ok); }
+  .tl-clip.error { fill: var(--err); }
+  .tl-label { fill: #fff; font-size: 9.5px; font-family: var(--font-body); font-weight: 600; }
+  .tl-label.pending { fill: var(--muted); }
+  .tl-playhead { stroke: var(--accent-ink); stroke-width: 1.5; stroke-dasharray: 3 3; }
+
+  /* --- Artefacts / livrables --- */
+  .artifact {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 8px; font-size: 13px; background: var(--panel-2);
+  }
+  .artifact a { color: var(--accent-ink); text-decoration: none; font-weight: 500; }
+  .artifact a:hover { text-decoration: underline; }
+  .artifact.error { border-color: rgba(214, 69, 69, 0.45); color: var(--err); }
+  .artifact audio, .artifact video { width: 100%; margin-top: 8px; border-radius: 8px; }
+  .artifact video { max-height: 360px; background: #000; }
+
+  /* --- Paramètres --- */
+  .settings { max-width: 560px; }
+  .settings input[type="password"] { width: 100%; margin: 6px 0 10px; }
+  .settings .warn { font-size: 12px; color: var(--warn); margin-top: 12px; line-height: 1.5; }
+  .settings .ok { color: var(--ok); } .settings .ko { color: var(--err); }
+  .settings label { font-size: 12.5px; color: var(--muted); display: block; margin: 12px 0 4px; }
+  .settings code { background: var(--code); padding: 1px 5px; border-radius: 5px; font-size: 12px; font-family: var(--font-mono); }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok, .dot.done { background: var(--ok); }
+  .dot.running { background: var(--warn); animation: pulse-dot 1s ease-in-out infinite; }
+  .dot.error { background: var(--err); }
+  .dot.pending { background: #c9c4b8; }
+  @keyframes pulse-dot { 50% { opacity: 0.35; } }
+  .run-item { gap: 8px; }
+  .run-item .run-task { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .skeleton {
+    height: 13px; border-radius: 6px; margin: 7px 0;
+    background: linear-gradient(90deg, var(--code) 25%, #f4f2ec 50%, var(--code) 75%);
+    background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
+  }
+  .skeleton.w40 { width: 40%; } .skeleton.w65 { width: 65%; } .skeleton.w85 { width: 85%; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 99; }
+  .toast {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--ok);
+    color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    box-shadow: var(--shadow); animation: toast-in 0.18s ease; max-width: 340px;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .toast.error { border-left-color: var(--err); }
+  .toast.out { opacity: 0; transform: translateY(6px); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  .side-empty { color: var(--muted); font-size: 12px; padding: 6px 4px; }
+  .del.confirm { color: #fff; background: var(--err); }
+  button.loading { opacity: 0.6; pointer-events: none; }
+  .chat-log .msg { animation: toast-in 0.15s ease; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .node .bot { animation: none; }
+    .node.active .ring { animation: none; }
+    .msg-dot { display: none; }
+    .skeleton { animation: none; }
+    .edge.flow { animation: none; stroke-dasharray: none; }
+    .dot.running { animation: none; }
+    * { transition-duration: 0.01ms !important; }
+  }
 </style>
 </head>
 <body>
   <aside class="sidebar">
-    <h1>🎬 Agents Vidéo</h1>
+    <h1><span class="logo">◆</span> Agents Vidéo</h1>
     <section>
       <h2>Agents</h2>
       <div id="agents"></div>
@@ -82,11 +293,33 @@
       <span id="view-title" style="color:var(--muted);font-size:13px"></span>
     </div>
     <div class="content" id="content">
-      <div class="empty">Sélectionnez un agent pour discuter, ou lancez une nouvelle tâche.</div>
+      <div class="empty hero">
+        <div class="graph hero-graph" id="hero-graph"></div>
+        <strong>Prêt à produire.</strong>
+        <p>Donnez votre cours, obtenez une vidéo. Voici le fonctionnement :</p>
+        <ol class="how">
+          <li><b>1. Lancez une tâche</b> (« + Nouvelle tâche ») en décrivant la vidéo — ou choisissez <b>🎤 Mode interview</b> : l'agent Interviewer vous pose les bonnes questions et rédige le brief.</li>
+          <li><b>2. Le pipeline tourne tout seul</b> : 5 agents se passent le travail en direct (graphe ci-dessus) — brief → storyboard → voix off → montage → contrôle qualité.</li>
+          <li><b>3. Récupérez les livrables</b> en bas de la tâche : transcription JSON, voix off MP3, plan de montage et <b>vidéo MP4 rendue</b>.</li>
+        </ol>
+        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement. La clé API se règle dans ⚙ Paramètres.</p>
+      </div>
     </div>
   </main>
 <script>
 const $ = (s) => document.querySelector(s);
+
+function toast(msg, type = "ok") {
+  let c = document.querySelector("#toasts");
+  if (!c) { c = document.createElement("div"); c.id = "toasts"; document.body.appendChild(c); }
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.classList.add("out"), 3400);
+  setTimeout(() => t.remove(), 3900);
+}
+
 let agents = [], runs = [], selectedAgent = null, selectedRun = null, pollTimer = null;
 
 async function api(path, opts) {
@@ -103,20 +336,25 @@ async function refreshSidebar() {
   runs = (await api("/api/runs")).data;
   $("#agents").innerHTML = agents.map((a) =>
     `<div class="agent-item ${selectedAgent === a.id ? "active" : ""}" data-agent="${a.id}">
-       <span>${a.name}</span>
+       <span class="dot ok" title="en ligne"></span>
+       <span class="agent-meta"><span class="agent-name">${esc(a.name)}</span><span class="agent-role">${esc(a.role ?? "")}</span></span>
        <button class="del" data-del="${a.id}" title="Supprimer">×</button>
      </div>`).join("");
-  $("#runs").innerHTML = runs.map((r) =>
+  $("#runs").innerHTML = runs.length ? runs.map((r) =>
     `<div class="run-item ${selectedRun === r.id ? "active" : ""}" data-run="${r.id}">
-       ${r.task} <span class="badge ${r.status}">${r.status}</span>
-     </div>`).join("");
+       <span class="dot ${r.status}"></span><span class="run-task">${esc(r.task)}</span><span class="badge ${r.status}">${r.status}</span>
+     </div>`).join("") : '<div class="side-empty">Aucune tâche pour l’instant — lancez « + Nouvelle tâche ».</div>';
 }
 
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-function showChat(agent) {
+function chatHistKey(id) { return `chat:${id}`; }
+
+function showChat(agent, onReply) {
   stopPolling();
   selectedRun = null; selectedAgent = agent.id;
+  if (location.hash !== `#/agent/${agent.id}`) location.hash = `#/agent/${agent.id}`;
+  document.title = `${agent.name} — Mistral Agents Dashboard`;
   $("#view-title").textContent = `Chat avec ${agent.name}`;
   $("#content").innerHTML = `<div class="chat" style="height:100%">
     <div class="chat-log" id="chat-log"></div>
@@ -125,17 +363,25 @@ function showChat(agent) {
       <button class="primary" type="submit">Envoyer</button>
     </form></div>`;
   const log = $("#chat-log");
+  const history = JSON.parse(localStorage.getItem(chatHistKey(agent.id)) ?? "[]");
+  for (const m of history) log.insertAdjacentHTML("beforeend", `<div class="msg ${m.role}">${esc(m.content)}</div>`);
+  log.scrollTop = log.scrollHeight;
   $("#chat-form").onsubmit = async (e) => {
     e.preventDefault();
     const text = $("#chat-input").value.trim();
     if (!text) return;
     $("#chat-input").value = "";
     log.insertAdjacentHTML("beforeend", `<div class="msg user">${esc(text)}</div>`);
+    history.push({ role: "user", content: text });
+    localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
     log.scrollTop = log.scrollHeight;
-    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { message: text } });
-    log.insertAdjacentHTML("beforeend",
-      `<div class="msg assistant">${esc(data.reply ?? "Erreur : " + (data.error ?? ""))}</div>`);
+    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { messages: history } });
+    const reply = data.reply ?? "Erreur : " + (data.error ?? "");
+    history.push({ role: "assistant", content: reply });
+    localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
+    log.insertAdjacentHTML("beforeend", `<div class="msg assistant">${esc(reply)}</div>`);
     log.scrollTop = log.scrollHeight;
+    if (onReply) onReply(reply, log);
   };
   refreshSidebar();
 }
@@ -143,10 +389,20 @@ function showChat(agent) {
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
 function graphSvg(run) {
-  const W = 1000, H = 150, y = 62, steps = run.steps ?? [];
+  const W = 1000, H = 172, y = 74, steps = run.steps ?? [];
   const n = steps.length;
   if (!n) return "";
   const xs = steps.map((_, i) => (n === 1 ? W / 2 : 80 + (i * (W - 160)) / (n - 1)));
+  // Règle de timeline (timecodes mono)
+  let ruler = `<g class="ruler"><line x1="80" y1="18" x2="${W - 80}" y2="18"/>`;
+  for (let x = 80; x <= W - 80; x += 100) {
+    const sec = Math.round(((x - 80) / (W - 160)) * 60);
+    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    const ss = String(sec % 60).padStart(2, "0");
+    ruler += `<line x1="${x}" y1="14" x2="${x}" y2="22"/><text x="${x}" y="10" text-anchor="middle">${mm}:${ss}</text>`;
+  }
+  ruler += `</g>`;
+  let defs = `<defs><marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" class="arrow-head"/></marker></defs>`;
   let edges = "", nodes = "";
   steps.forEach((s, i) => {
     const x = xs[i];
@@ -154,12 +410,16 @@ function graphSvg(run) {
     if (i > 0) {
       const x0 = xs[i - 1];
       const d = `M ${x0 + 27} ${y} C ${x0 + 75} ${y - 34}, ${x - 75} ${y - 34}, ${x - 27} ${y}`;
-      const lit = s.status === "running" || s.status === "done";
-      edges += `<path class="edge ${lit ? "lit" : ""}" d="${d}"/>`;
+      const state = s.status === "running" ? "flow" : (s.status === "done" || s.status === "error") ? "lit" : "";
+      edges += `<path class="edge ${state}" d="${d}" marker-end="url(#arrow)"/>`;
+      // Paquets multiples en continu pendant que l'étape tourne
       if (s.status === "running") {
-        edges += `<circle r="5" fill="var(--accent)"><animateMotion dur="0.9s" repeatCount="1" path="${d}"/></circle>`;
+        for (let k = 0; k < 3; k++) {
+          edges += `<circle class="msg-dot" r="4"><animateMotion dur="1.1s" begin="${(-k * 0.37).toFixed(2)}s" repeatCount="indefinite" path="${d}"/></circle>`;
+        }
       }
     }
+    const check = s.status === "done" ? `<path class="check" d="M -7 1 L -2 6 L 8 -5"/>` : "";
     nodes += `<g class="node ${cls}" transform="translate(${x} ${y})">
       <circle class="ring" r="24"/>
       <g class="bot">
@@ -170,14 +430,52 @@ function graphSvg(run) {
         <line x1="0" y1="7" x2="-6" y2="17"/>
         <line x1="0" y1="7" x2="6" y2="17"/>
       </g>
+      ${check}
       <text y="42">${esc(s.agentName)}</text>
+      <text class="node-role" y="55">${esc((agents.find((a) => a.name === s.agentName)?.role ?? "").slice(0, 34))}</text>
     </g>`;
   });
-  return `<div class="graph"><svg viewBox="0 0 ${W} ${H}">${edges}${nodes}</svg></div>`;
+  return `<div class="graph"><svg viewBox="0 0 ${W} ${H}">${defs}${ruler}${edges}${nodes}</svg></div>`;
+}
+
+function timelineHtml(run) {
+  const steps = run.steps ?? [];
+  if (!steps.length) return "";
+  const W = 1000, laneH = 26, top = 24, H = top + steps.length * laneH + 8;
+  const t0 = new Date(run.createdAt).getTime();
+  const lastEnd = Math.max(...steps.map((s) => (s.endedAt ? new Date(s.endedAt).getTime() : 0)), 0);
+  const now = Date.now();
+  const t1 = Math.max(lastEnd, run.status === "running" ? now : t0 + 1, t0 + 1);
+  const span = Math.max(t1 - t0, 1000);
+  const X = (t) => 60 + ((t - t0) / span) * (W - 80);
+  const fmt = (ms) => { const sec = Math.round((ms - t0) / 1000); return `+${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+  let ruler = `<g class="tl-ruler"><line x1="60" y1="14" x2="${W - 20}" y2="14"/>`;
+  for (let x = 60; x <= W - 20; x += 98) {
+    ruler += `<line x1="${x}" y1="10" x2="${x}" y2="18"/><text x="${x}" y="8">${fmt(t0 + ((x - 60) / (W - 80)) * span)}</text>`;
+  }
+  ruler += `</g>`;
+  let lanes = "", clips = "";
+  steps.forEach((s, i) => {
+    const y = top + i * laneH;
+    lanes += `<line class="tl-lane" x1="60" y1="${y + laneH / 2}" x2="${W - 20}" y2="${y + laneH / 2}"/>`;
+    const sx = s.startedAt ? X(new Date(s.startedAt).getTime()) : null;
+    const ex = s.endedAt ? X(new Date(s.endedAt).getTime()) : (s.status === "running" && sx !== null ? X(now) : null);
+    if (sx !== null && ex !== null) {
+      const w = Math.max(ex - sx, 14);
+      clips += `<rect class="tl-clip ${s.status}" x="${sx}" y="${y + 3}" width="${w}" height="${laneH - 8}"/>`;
+      clips += `<text class="tl-label ${s.status === "pending" ? "pending" : ""}" x="${sx + 6}" y="${y + laneH / 2 + 3.5}">${esc(s.agentName)}</text>`;
+    } else {
+      clips += `<rect class="tl-clip pending" x="60" y="${y + 3}" width="10" height="${laneH - 8}"/>`;
+      clips += `<text class="tl-label pending" x="76" y="${y + laneH / 2 + 3.5}">${esc(s.agentName)}</text>`;
+    }
+  });
+  const playhead = run.status === "running" ? `<line class="tl-playhead" x1="${X(now)}" y1="4" x2="${X(now)}" y2="${H - 4}"/>` : "";
+  return `<div class="timeline"><svg viewBox="0 0 ${W} ${H}">${ruler}${lanes}${clips}${playhead}</svg></div>`;
 }
 
 async function showRun(id, poll) {
   selectedAgent = null; selectedRun = id;
+  if (location.hash !== `#/run/${id}`) location.hash = `#/run/${id}`;
   stopPolling();
   const render = (run) => {
     $("#view-title").textContent = run.task;
@@ -190,13 +488,13 @@ async function showRun(id, poll) {
         return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
       return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
     }).join("");
-    $("#content").innerHTML = graphSvg(run)
+    $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
       + run.steps.map((s) => `
       <div class="step">
         <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
-        ${s.output ? `<pre>${esc(s.output)}</pre>` : ""}
-        ${s.error ? `<pre style="color:#ff5c5c">${esc(s.error)}</pre>` : ""}
+        ${s.output ? `<pre>${esc(s.output)}</pre>` : s.status === "running" ? `<div class="skeleton w85"></div><div class="skeleton w65"></div><div class="skeleton w40"></div>` : ""}
+        ${s.error ? `<pre style="color:var(--err)">${esc(s.error)}</pre>` : ""}
       </div>`).join("");
   };
   const tick = async () => {
@@ -219,6 +517,7 @@ $("#open-settings").onclick = async () => {
     <div id="settings-status" style="font-size:13px;color:var(--muted)">chargement…</div>
     <input id="apikey-input" type="password" placeholder="mstrl-…" autocomplete="off" />
     <button class="primary" id="save-key">Enregistrer la clé</button>
+    <button class="ghost" id="test-key">Tester la clé</button>
     <button class="ghost" id="del-key">Supprimer la clé enregistrée</button>
     <p class="warn">⚠ La clé enregistrée ici est stockée en clair dans <code>data/settings.json</code> (gitignoré, local uniquement). Préférez la variable <code>MISTRAL_API_KEY</code> (.env) pour la production. Ne partagez jamais votre clé. La clé n'est jamais renvoyée par l'API (statut masqué uniquement).</p>
     <h3 style="margin-top:14px">🔊 Voix (TTS)</h3>
@@ -240,9 +539,14 @@ $("#open-settings").onclick = async () => {
     const v = $("#apikey-input").value.trim();
     if (!v) return;
     const { status, data } = await api("/api/settings", { method: "POST", body: { apiKey: v } });
-    if (status !== 200) { alert(data.error ?? "Erreur"); return; }
+    if (status !== 200) { toast(data.error ?? "Erreur", "error"); return; }
     $("#apikey-input").value = "";
+    toast("Clé enregistrée");
     await refresh();
+  };
+  $("#test-key").onclick = async () => {
+    const { status, data } = await api("/api/settings/test");
+    toast(status === 200 ? `Clé valide ✔ (${data.models} modèles)` : `Clé invalide : ${data.error}`, status === 200 ? "ok" : "error");
   };
   $("#del-key").onclick = async () => { await api("/api/settings", { method: "DELETE" }); await refresh(); };
   $("#upload-voice").onclick = async () => {
@@ -255,6 +559,8 @@ $("#open-settings").onclick = async () => {
       r.readAsDataURL(f);
     });
     const { status, data } = await api("/api/settings/voice-ref", { method: "POST", body: { filename: f.name, contentBase64: b64 } });
+    if (status === 200) toast(`Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)`);
+    else toast(data.error ?? "Erreur", "error");
     $("#voice-status").textContent = status === 200 ? `✔ Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)` : `✘ ${data.error ?? "Erreur"}`;
     $("#voice-status").style.color = status === 200 ? "#3ecf5e" : "#ff5c5c";
     await refresh();
@@ -272,7 +578,10 @@ $("#new-task").onclick = async () => {
     <textarea id="task-input" rows="4" placeholder="Décrivez la vidéo à produire (sujet, public, durée, style)…" style="width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
     <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">📎 Joindre le cours (.md/.txt direct, ou .pdf/.jpg/.png via OCR Mistral, 20 Mo max) — le texte extrait est injecté dans le brief des agents :</label>
     <input id="course-file" type="file" accept=".md,.txt,.pdf,.jpg,.jpeg,.png" style="font-size:13px;color:var(--muted)" />
-    <div style="margin-top:12px"><button class="primary" id="launch-task">Lancer le pipeline</button></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="primary" id="launch-task">Lancer le pipeline</button>
+      <button class="ghost" id="mode-interview">🎤 Mode interview (l'agent vous pose des questions)</button>
+    </div>
   </div>`;
   refreshSidebar();
   $("#launch-task").onclick = async () => {
@@ -289,16 +598,48 @@ $("#new-task").onclick = async () => {
       });
       body.course = { name: f.name, contentBase64: b64 };
     }
+    const btn = $("#launch-task");
+    btn.classList.add("loading"); btn.textContent = "Lancement…";
     const { status, data } = await api("/api/runs", { method: "POST", body });
-    if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+    btn.classList.remove("loading"); btn.textContent = "Lancer le pipeline";
+    if (status !== 201) { toast(data.error ?? "Erreur", "error"); return; }
+    toast("Tâche lancée — le pipeline démarre");
     await refreshSidebar();
     showRun(data.id, true);
+  };
+  $("#mode-interview").onclick = () => {
+    const interviewer = agents.find((a) => a.name === "Interviewer") ?? agents[0];
+    showChat(interviewer, (reply, log) => {
+      if (reply.includes("BRIEF FINAL") && !$("#launch-brief")) {
+        const brief = reply.slice(reply.indexOf("BRIEF FINAL"));
+        log.insertAdjacentHTML("beforeend",
+          `<div style="margin:8px 0"><button class="primary" id="launch-brief">▶ Lancer le pipeline avec ce brief</button></div>`);
+        $("#launch-brief").onclick = async () => {
+          const { status, data } = await api("/api/runs", { method: "POST", body: { task: brief } });
+          if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+          await refreshSidebar();
+          showRun(data.id, true);
+        };
+      }
+    });
   };
 };
 
 $("#agents").onclick = async (e) => {
   const del = e.target.dataset.del;
-  if (del) { e.stopPropagation(); await api(`/api/agents/${del}`, { method: "DELETE" }); refreshSidebar(); return; }
+  if (del) {
+    e.stopPropagation();
+    const btn = e.target;
+    if (!btn.classList.contains("confirm")) {
+      btn.classList.add("confirm"); btn.textContent = "✓";
+      setTimeout(() => { btn.classList.remove("confirm"); btn.textContent = "×"; }, 3000);
+      return;
+    }
+    const { status } = await api(`/api/agents/${del}`, { method: "DELETE" });
+    if (status === 200) toast("Agent supprimé"); else toast("Suppression impossible", "error");
+    refreshSidebar();
+    return;
+  }
   const id = e.target.closest("[data-agent]")?.dataset.agent;
   if (id) showChat(agents.find((a) => a.id === id));
 };
@@ -308,7 +649,28 @@ $("#runs").onclick = (e) => {
   if (id) showRun(id, false);
 };
 
-refreshSidebar();
+function renderHeroGraph() {
+  const el = document.querySelector("#hero-graph");
+  if (!el) return;
+  const pipeline = agents.filter((a) => a.inPipeline !== false).sort((a, b) => a.order - b.order);
+  if (!pipeline.length) { el.innerHTML = ""; return; }
+  const svg = graphSvg({ steps: pipeline.map((a) => ({ agentName: a.name, status: "pending" })) });
+  el.innerHTML = svg.replace(/^<div class="graph">/, "").replace(/<\/div>$/, "");
+}
+
+function route() {
+  const h = location.hash;
+  const mRun = h.match(/^#\/run\/(.+)$/);
+  const mAgent = h.match(/^#\/agent\/(.+)$/);
+  if (mRun && selectedRun !== mRun[1]) showRun(mRun[1], false);
+  else if (mAgent && selectedAgent !== mAgent[1]) {
+    const a = agents.find((x) => x.id === mAgent[1]);
+    if (a) showChat(a);
+  }
+}
+window.addEventListener("hashchange", route);
+
+refreshSidebar().then(() => { renderHeroGraph(); route(); });
 </script>
 </body>
 </html>

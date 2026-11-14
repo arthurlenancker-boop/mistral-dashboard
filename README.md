@@ -46,6 +46,12 @@ l'utilisateur :
 | Monteur | famille `remotion-*` (code frame-deterministic, `useCurrentFrame`/`interpolate`, `<Sequence>`, `staticFile()`, captions `Caption` synchronisées, `remotion still` avant encodage) + styles au choix : `whiteboard-animation` (draw-on SVG + main marqueur), `diagram-animation` (révélation nœuds → arêtes → labels, focus+contexte), `isometric-animation` (2,5D, ombrage par face, lift en Z) + rendu statique `prefers-reduced-motion` |
 | QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
+## Qualité des agents (pratiques 2026)
+
+- **Contrat commun** (`COMMON_CONTRACT` dans `src/agents.ts`, prépendé à chaque system prompt) : sortie structurée en JSON délimité pour tout ce qui est consommé par un autre agent, et règle « ne jamais inventer — écrire INCONNU / À VÉRIFIER ».
+- **Budget de contexte** : chaque sortie précédente est tronquée à 4 000 caractères dans le brief ; `AGENT_MAX_TOKENS` (défaut 8192) borne la génération.
+- **Boucle de réflexion bornée** : si le QA conclut « CORRECTIONS REQUISES », le Monteur révise à partir des corrections (étape ré-exécutée en place, visible dans le graphe) puis le QA re-vérifie — max `MAX_QA_REVISIONS` (défaut 2) itérations.
+
 ## API locale
 
 | Méthode | Chemin | Description |
@@ -78,6 +84,15 @@ Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'U
 - **Changer de voix sans toucher au serveur** : dans ⚙ Paramètres → « Importer une voix de référence », uploadez votre propre MP3/WAV (25 Mo max, voix claire d'un seul locuteur) via `POST /api/settings/voice-ref`. Le prochain TTS l'utilisera.
 - Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
 - Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
+
+## Mode interview (agent Interviewer)
+
+Au lieu de décrire la vidéo, cliquez sur **🎤 Mode interview** : l'agent
+**Interviewer** (6e agent, hors pipeline) vous pose des questions une par une
+(sujet, public TDA/H-TSA ou non, durée, style visuel, voix, objectifs/non-objectifs)
+puis produit un bloc `BRIEF FINAL` structuré. Un bouton **▶ Lancer le pipeline avec
+ce brief** apparaît alors et démarre la tâche avec ce brief. Le chat conserve
+l'historique (endpoint `/api/agents/:id/chat` accepte `messages` ou `message`).
 
 ## Joindre un cours à une tâche
 

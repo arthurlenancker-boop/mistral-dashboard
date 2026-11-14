@@ -1,7 +1,7 @@
 import http from "node:http";
 import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, extname } from "node:path";
-import { SEED_AGENTS, type Agent } from "./agents.js";
+import { SEED_AGENTS, COMMON_CONTRACT, type Agent } from "./agents.js";
 import {
   getAgents,
   saveAgents,
@@ -55,6 +55,7 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".woff2": "font/woff2",
 };
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -95,15 +96,20 @@ function serveStatic(
   const ext = extname(path);
   const mime = MIME[ext];
   if (!mime) return false;
-  res.writeHead(200, { "Content-Type": mime });
+  res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-store" });
   res.end(readFileSync(path));
   return true;
 }
 
-async function runPipeline(run: Run, task: string): Promise<void> {
-  const agents = getAgents()
-    .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
+/** Agents du pipeline : agents seed, hors agents interactifs, triés par ordre. */
+function pipelineAgents(): Agent[] {
+  return getAgents()
+    .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
     .sort((a, b) => a.order - b.order);
+}
+
+async function runPipeline(run: Run, task: string): Promise<void> {
+  const agents = pipelineAgents();
   const previousOutputs: { agentName: string; output: string }[] = [];
   for (const step of run.steps) {
     const agent = agents.find((a) => a.id === step.agentId);
@@ -114,7 +120,7 @@ async function runPipeline(run: Run, task: string): Promise<void> {
     saveRun(run);
     try {
       const output = await complete([
-        { role: "system", content: agent.systemPrompt },
+        { role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` },
         { role: "user", content: buildBrief(task, previousOutputs) },
       ]);
       step.status = "done";
@@ -132,6 +138,50 @@ async function runPipeline(run: Run, task: string): Promise<void> {
     run.updatedAt = step.endedAt;
     saveRun(run);
   }
+  // Boucle de réflexion bornée : si le QA demande des corrections, le Monteur
+  // révise (max MAX_QA_REVISIONS itérations), puis le QA re-vérifie.
+  const MAX_REVISIONS = Number(process.env.MAX_QA_REVISIONS ?? 2);
+  const qaStep = run.steps.find((st) => st.agentName === "QA");
+  const monteurStep = run.steps.find((st) => st.agentName === "Monteur");
+  const qaAgent = agents.find((a) => a.id === qaStep?.agentId);
+  const monteurAgent = agents.find((a) => a.id === monteurStep?.agentId);
+  let revisions = 0;
+  while (
+    revisions < MAX_REVISIONS &&
+    qaStep?.output && /CORRECTIONS REQUISES/i.test(qaStep.output) &&
+    monteurStep && qaAgent && monteurAgent
+  ) {
+    revisions++;
+    const qaOutput = qaStep.output;
+    previousOutputs.length = 0;
+    for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+    // Le Monteur révise à partir des corrections du QA
+    monteurStep.status = "running";
+    run.updatedAt = new Date().toISOString();
+    saveRun(run);
+    const revised = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${monteurAgent.systemPrompt}` },
+      { role: "user", content: `${buildBrief(task, previousOutputs)}\n\nCORRECTIONS DU QA (itération ${revisions}/${MAX_REVISIONS}) :\n${qaOutput}\nApplique UNIQUEMENT ces corrections ciblées, ne réécris pas tout.` },
+    ]);
+    monteurStep.status = "done";
+    monteurStep.output = revised;
+    monteurStep.endedAt = new Date().toISOString();
+    previousOutputs.length = 0;
+    for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+    // Le QA re-vérifie
+    qaStep.status = "running";
+    saveRun(run);
+    const qaOut = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${qaAgent.systemPrompt}` },
+      { role: "user", content: buildBrief(task, previousOutputs) },
+    ]);
+    qaStep.status = "done";
+    qaStep.output = qaOut;
+    qaStep.endedAt = new Date().toISOString();
+    run.updatedAt = new Date().toISOString();
+    saveRun(run);
+  }
+
   run.status = "done";
   run.updatedAt = new Date().toISOString();
   saveRun(run);
@@ -281,10 +331,6 @@ async function handleApi(
       json(res, 200, { ok: true });
       return true;
     }
-    if (method === "POST" && pathname.endsWith("/chat")) {
-      json(res, 404, { error: "Chemin introuvable" });
-      return true;
-    }
   }
 
   const chatMatch = pathname.match(/^\/api\/agents\/([^/]+)\/chat$/);
@@ -295,17 +341,22 @@ async function handleApi(
       return true;
     }
     const body = await readBody(req);
-    if (typeof body.message !== "string" || !body.message.trim()) {
-      json(res, 400, { error: "Le champ 'message' est requis" });
+    const history =
+      Array.isArray(body.messages) && body.messages.length
+        ? body.messages.filter(
+            (m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
+          )
+        : typeof body.message === "string" && body.message.trim()
+          ? [{ role: "user", content: String(body.message) }]
+          : [];
+    if (!history.length) {
+      json(res, 400, { error: "Le champ 'message' (ou 'messages') est requis" });
       return true;
     }
     try {
       const answer = await getClient().chat.complete({
         model: "mistral-large-4",
-        messages: [
-          { role: "system", content: agent.systemPrompt },
-          { role: "user", content: String(body.message) },
-        ],
+        messages: [{ role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` }, ...history],
       });
       json(res, 200, {
         reply: answer.choices?.[0]?.message?.content ?? "",
@@ -327,6 +378,16 @@ async function handleApi(
       ttsVoice: TTS_VOICE || null,
       hasVoiceReference: voiceReferencePath() !== null,
     });
+    return true;
+  }
+
+  if (pathname === "/api/settings/test" && method === "GET") {
+    try {
+      const r = await getClient().models.list();
+      json(res, 200, { ok: true, models: Array.isArray(r.data) ? r.data.length : 0 });
+    } catch (err) {
+      json(res, 401, { ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
     return true;
   }
 
@@ -380,9 +441,7 @@ async function handleApi(
       return true;
     }
     const task = String(body.task).trim();
-    const agents = getAgents()
-      .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
-      .sort((a, b) => a.order - b.order);
+    const agents = pipelineAgents();
     const now = new Date().toISOString();
     const steps: RunStep[] = agents.map((a) => ({
       agentId: a.id,
