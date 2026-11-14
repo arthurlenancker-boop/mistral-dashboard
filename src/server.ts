@@ -95,7 +95,7 @@ function serveStatic(
   const ext = extname(path);
   const mime = MIME[ext];
   if (!mime) return false;
-  res.writeHead(200, { "Content-Type": mime });
+  res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-store" });
   res.end(readFileSync(path));
   return true;
 }
