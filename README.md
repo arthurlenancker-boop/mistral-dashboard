@@ -40,10 +40,10 @@ l'utilisateur :
 
 | Agent | Skills mobilisés |
 |---|---|
-| Chef de projet | — (brief structuré, règle d'or 1 idée = 1 scène = 1 phrase) |
-| Scénariste | `video-cours-production` (storyboard d'abord, prompts structurés avec beats horodatés, chapitrage, itération par corrections ciblées) + `explainer-video` (arc Problème → Enjeux → Solution → Comment → Payoff, script-first à ~2,3 mots/s, une seule analogie, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) |
+| Chef de projet | `brainstorming` + `grill-with-docs` (clarifier objectifs/non-objectifs/contraintes avant le brief) + `writing-plans` (mini-plan numéroté avant dispatch). Règle **adaptée TDA/H & TSA** (remplace « 1 idée = 1 scène = 1 phrase ») : 1 idée par scène, scènes ≈ 5–8 s, ancrage visuel dédié, transitions explicites, récapitulatifs, charge cognitive limitée |
+| Scénariste | `video-cours-production` + `explainer-video` (storyboard d'abord, arc Problème → Enjeux → Solution → Comment → Payoff, beats horodatés, chapitrage, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) — avec la règle TDA/H-TSA ci-dessus |
 | Voix | `voxtral-narration` (normalisation du texte, `phoneme_hints`, tags inline `[emotion]`/`[pace]`, disfluences, régénération par segment) + `tts` (mode timeline, alignement SRT/audio, durées réelles par segment) |
-| Monteur | famille `remotion-*` : `remotion-best-practices` (animation par code frame-deterministic), `remotion-create`/`remotion-markup` (`useCurrentFrame`/`interpolate`, `useVideoConfig`, `<Sequence>`, `staticFile()`, durées dérivées des données), `remotion-captions` (type `Caption`, synchro sur l'audio), `remotion-render`/`remotion-studio` (vérification frame par frame avant encodage) |
+| Monteur | famille `remotion-*` (code frame-deterministic, `useCurrentFrame`/`interpolate`, `<Sequence>`, `staticFile()`, captions `Caption` synchronisées, `remotion still` avant encodage) + styles au choix : `whiteboard-animation` (draw-on SVG + main marqueur), `diagram-animation` (révélation nœuds → arêtes → labels, focus+contexte), `isometric-animation` (2,5D, ombrage par face, lift en Z) + rendu statique `prefers-reduced-motion` |
 | QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
 ## API locale
@@ -55,6 +55,27 @@ l'utilisateur :
 | DELETE | `/api/agents/:id` | Supprimer un agent |
 | POST | `/api/agents/:id/chat` | Chat direct avec un agent |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
+| GET | `/api/runs/:id/artifacts/:file` | Télécharger un livrable (MP3, JSON, MD) |
+
+## Livrables (artefacts)
+
+Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/` (gitignoré) et les affiche dans l'UI (section « 🎁 Livrables ») :
+
+- `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
+- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`, modèle `voxtral-small-latest` par défaut, surchargeable via `MISTRAL_TTS_MODEL` / `MISTRAL_TTS_VOICE`) à partir de la sortie de l'agent Voix
+- `montage.md` — plan de montage produit par l'agent Monteur
+
+Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
+
+## Paramètres (clé API dans le dashboard)
+
+Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'UI. La clé est stockée dans `data/settings.json` (gitignoré) et n'est jamais renvoyée par l'API (statut masqué). Priorité : `MISTRAL_API_KEY` (env) > clé des paramètres. Sans aucune clé, le serveur démarre mais les appels renvoient `503` avec un message explicite.
+
+## Voix clonée (Voxtral)
+
+- Par défaut, la synthèse utilise le **clonage zero-shot** depuis `data/voice-ref.mp3` (champ `ref_audio`, base64) — fichier gitignoré, à remplacer par votre propre enregistrement (MP3/WAV, voix claire d'un seul locuteur).
+- Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
+- Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
 | GET | `/api/runs` | Liste des exécutions |
 | GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
 

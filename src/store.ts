@@ -5,6 +5,19 @@ import { SEED_AGENTS, type Agent } from "./agents.js";
 const DATA_DIR = join(process.cwd(), "data");
 const AGENTS_FILE = join(DATA_DIR, "agents.json");
 const RUNS_FILE = join(DATA_DIR, "runs.json");
+const SETTINGS_FILE = join(DATA_DIR, "settings.json");
+
+export interface Settings {
+  apiKey?: string;
+}
+
+export function getSettings(): Settings {
+  return load<Settings>(SETTINGS_FILE, {});
+}
+
+export function saveSettings(settings: Settings): void {
+  save(SETTINGS_FILE, settings);
+}
 
 export interface RunStep {
   agentId: string;
@@ -16,6 +29,13 @@ export interface RunStep {
   endedAt?: string;
 }
 
+export interface Artifact {
+  type: "audio" | "json" | "text";
+  name: string;
+  label: string;
+  error?: string;
+}
+
 export interface Run {
   id: string;
   task: string;
@@ -23,6 +43,7 @@ export interface Run {
   createdAt: string;
   updatedAt: string;
   steps: RunStep[];
+  artifacts?: Artifact[];
 }
 
 export interface ChatMessage {
