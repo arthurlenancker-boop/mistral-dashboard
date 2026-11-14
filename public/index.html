@@ -56,7 +56,7 @@
   .sidebar section:last-of-type { border-bottom: none; flex: 1; }
   .sidebar h2 {
     font-size: 11px; font-weight: 600; color: var(--muted);
-    margin: 2px 2px 8px; letter-spacing: 0.04em; text-transform: uppercase;
+    margin: 2px 2px 8px; letter-spacing: 0.02em;
   }
   .agent-item, .run-item {
     padding: 8px 10px; border-radius: 8px; cursor: pointer;
@@ -136,8 +136,11 @@
     transition: border-color 0.15s ease;
   }
   .chat-form input:focus, .settings input:focus, .settings textarea:focus { border-color: var(--accent); outline: none; }
-  .empty { color: var(--muted); margin: auto; text-align: center; max-width: 320px; line-height: 1.6; }
-  .empty strong { color: var(--text); font-family: var(--font-display); display: block; margin-bottom: 6px; font-size: 15px; }
+  .empty { color: var(--muted); margin: auto; text-align: center; max-width: 340px; line-height: 1.6; }
+  .empty strong { color: var(--text); font-family: var(--font-display); display: block; margin-bottom: 6px; font-size: 17px; letter-spacing: -0.01em; }
+  .hero { max-width: 620px; }
+  .hero p { font-size: 13.5px; }
+  .hero-graph { margin-bottom: 20px; padding: 18px 10px 8px; }
 
   /* --- Graphe animé du pipeline --- */
   .graph {
@@ -211,7 +214,11 @@
       <span id="view-title" style="color:var(--muted);font-size:13px"></span>
     </div>
     <div class="content" id="content">
-      <div class="empty"><strong>Prêt à produire.</strong>Choisissez un agent pour discuter avec lui, lancez une nouvelle tâche, ou passez en mode interview.</div>
+      <div class="empty hero">
+        <div class="graph hero-graph" id="hero-graph"></div>
+        <strong>Prêt à produire.</strong>
+        <p>Lancez une nouvelle tâche : l'équipe d'agents (interview, storyboard, voix, montage, QA) produit votre vidéo de cours, et le rendu MP4 tombe dans les livrables.</p>
+      </div>
     </div>
   </main>
 <script>
@@ -460,7 +467,16 @@ $("#runs").onclick = (e) => {
   if (id) showRun(id, false);
 };
 
-refreshSidebar();
+function renderHeroGraph() {
+  const el = document.querySelector("#hero-graph");
+  if (!el) return;
+  const pipeline = agents.filter((a) => a.inPipeline !== false).sort((a, b) => a.order - b.order);
+  if (!pipeline.length) { el.innerHTML = ""; return; }
+  const svg = graphSvg({ steps: pipeline.map((a) => ({ agentName: a.name, status: "pending" })) });
+  el.innerHTML = svg.replace(/^<div class="graph">/, "").replace(/<\/div>$/, "");
+}
+
+refreshSidebar().then(renderHeroGraph);
 </script>
 </body>
 </html>
