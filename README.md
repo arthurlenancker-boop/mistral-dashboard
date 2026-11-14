@@ -46,6 +46,12 @@ l'utilisateur :
 | Monteur | famille `remotion-*` (code frame-deterministic, `useCurrentFrame`/`interpolate`, `<Sequence>`, `staticFile()`, captions `Caption` synchronisées, `remotion still` avant encodage) + styles au choix : `whiteboard-animation` (draw-on SVG + main marqueur), `diagram-animation` (révélation nœuds → arêtes → labels, focus+contexte), `isometric-animation` (2,5D, ombrage par face, lift en Z) + rendu statique `prefers-reduced-motion` |
 | QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
+## Qualité des agents (pratiques 2026)
+
+- **Contrat commun** (`COMMON_CONTRACT` dans `src/agents.ts`, prépendé à chaque system prompt) : sortie structurée en JSON délimité pour tout ce qui est consommé par un autre agent, et règle « ne jamais inventer — écrire INCONNU / À VÉRIFIER ».
+- **Budget de contexte** : chaque sortie précédente est tronquée à 4 000 caractères dans le brief ; `AGENT_MAX_TOKENS` (défaut 8192) borne la génération.
+- **Boucle de réflexion bornée** : si le QA conclut « CORRECTIONS REQUISES », le Monteur révise à partir des corrections (étape ré-exécutée en place, visible dans le graphe) puis le QA re-vérifie — max `MAX_QA_REVISIONS` (défaut 2) itérations.
+
 ## API locale
 
 | Méthode | Chemin | Description |
