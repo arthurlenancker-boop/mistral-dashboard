@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/api.test.ts",
+    "test:ui": "node tests/ui.test.mjs"
   },
   "dependencies": {
     "@mistralai/mistralai": "^1.9.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
