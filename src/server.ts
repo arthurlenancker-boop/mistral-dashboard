@@ -102,7 +102,7 @@ function serveStatic(
 
 async function runPipeline(run: Run, task: string): Promise<void> {
   const agents = getAgents()
-    .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
+    .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
     .sort((a, b) => a.order - b.order);
   const previousOutputs: { agentName: string; output: string }[] = [];
   for (const step of run.steps) {
@@ -295,17 +295,22 @@ async function handleApi(
       return true;
     }
     const body = await readBody(req);
-    if (typeof body.message !== "string" || !body.message.trim()) {
-      json(res, 400, { error: "Le champ 'message' est requis" });
+    const history =
+      Array.isArray(body.messages) && body.messages.length
+        ? body.messages.filter(
+            (m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
+          )
+        : typeof body.message === "string" && body.message.trim()
+          ? [{ role: "user", content: String(body.message) }]
+          : [];
+    if (!history.length) {
+      json(res, 400, { error: "Le champ 'message' (ou 'messages') est requis" });
       return true;
     }
     try {
       const answer = await getClient().chat.complete({
         model: "mistral-large-4",
-        messages: [
-          { role: "system", content: agent.systemPrompt },
-          { role: "user", content: String(body.message) },
-        ],
+        messages: [{ role: "system", content: agent.systemPrompt }, ...history],
       });
       json(res, 200, {
         reply: answer.choices?.[0]?.message?.content ?? "",
@@ -381,7 +386,7 @@ async function handleApi(
     }
     const task = String(body.task).trim();
     const agents = getAgents()
-      .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
+      .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
       .sort((a, b) => a.order - b.order);
     const now = new Date().toISOString();
     const steps: RunStep[] = agents.map((a) => ({

@@ -79,6 +79,15 @@ Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'U
 - Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
 - Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
 
+## Mode interview (agent Interviewer)
+
+Au lieu de décrire la vidéo, cliquez sur **🎤 Mode interview** : l'agent
+**Interviewer** (6e agent, hors pipeline) vous pose des questions une par une
+(sujet, public TDA/H-TSA ou non, durée, style visuel, voix, objectifs/non-objectifs)
+puis produit un bloc `BRIEF FINAL` structuré. Un bouton **▶ Lancer le pipeline avec
+ce brief** apparaît alors et démarre la tâche avec ce brief. Le chat conserve
+l'historique (endpoint `/api/agents/:id/chat` accepte `messages` ou `message`).
+
 ## Joindre un cours à une tâche
 
 Au lancement d'une tâche (« + Nouvelle tâche »), joignez un fichier de cours :

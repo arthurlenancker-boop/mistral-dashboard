@@ -114,7 +114,7 @@ async function refreshSidebar() {
 
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-function showChat(agent) {
+function showChat(agent, onReply) {
   stopPolling();
   selectedRun = null; selectedAgent = agent.id;
   $("#view-title").textContent = `Chat avec ${agent.name}`;
@@ -125,17 +125,21 @@ function showChat(agent) {
       <button class="primary" type="submit">Envoyer</button>
     </form></div>`;
   const log = $("#chat-log");
+  const history = [];
   $("#chat-form").onsubmit = async (e) => {
     e.preventDefault();
     const text = $("#chat-input").value.trim();
     if (!text) return;
     $("#chat-input").value = "";
     log.insertAdjacentHTML("beforeend", `<div class="msg user">${esc(text)}</div>`);
+    history.push({ role: "user", content: text });
     log.scrollTop = log.scrollHeight;
-    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { message: text } });
-    log.insertAdjacentHTML("beforeend",
-      `<div class="msg assistant">${esc(data.reply ?? "Erreur : " + (data.error ?? ""))}</div>`);
+    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { messages: history } });
+    const reply = data.reply ?? "Erreur : " + (data.error ?? "");
+    history.push({ role: "assistant", content: reply });
+    log.insertAdjacentHTML("beforeend", `<div class="msg assistant">${esc(reply)}</div>`);
     log.scrollTop = log.scrollHeight;
+    if (onReply) onReply(reply, log);
   };
   refreshSidebar();
 }
@@ -272,7 +276,10 @@ $("#new-task").onclick = async () => {
     <textarea id="task-input" rows="4" placeholder="Décrivez la vidéo à produire (sujet, public, durée, style)…" style="width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
     <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">📎 Joindre le cours (.md/.txt direct, ou .pdf/.jpg/.png via OCR Mistral, 20 Mo max) — le texte extrait est injecté dans le brief des agents :</label>
     <input id="course-file" type="file" accept=".md,.txt,.pdf,.jpg,.jpeg,.png" style="font-size:13px;color:var(--muted)" />
-    <div style="margin-top:12px"><button class="primary" id="launch-task">Lancer le pipeline</button></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="primary" id="launch-task">Lancer le pipeline</button>
+      <button class="ghost" id="mode-interview">🎤 Mode interview (l'agent vous pose des questions)</button>
+    </div>
   </div>`;
   refreshSidebar();
   $("#launch-task").onclick = async () => {
@@ -293,6 +300,22 @@ $("#new-task").onclick = async () => {
     if (status !== 201) { alert(data.error ?? "Erreur"); return; }
     await refreshSidebar();
     showRun(data.id, true);
+  };
+  $("#mode-interview").onclick = () => {
+    const interviewer = agents.find((a) => a.name === "Interviewer") ?? agents[0];
+    showChat(interviewer, (reply, log) => {
+      if (reply.includes("BRIEF FINAL") && !$("#launch-brief")) {
+        const brief = reply.slice(reply.indexOf("BRIEF FINAL"));
+        log.insertAdjacentHTML("beforeend",
+          `<div style="margin:8px 0"><button class="primary" id="launch-brief">▶ Lancer le pipeline avec ce brief</button></div>`);
+        $("#launch-brief").onclick = async () => {
+          const { status, data } = await api("/api/runs", { method: "POST", body: { task: brief } });
+          if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+          await refreshSidebar();
+          showRun(data.id, true);
+        };
+      }
+    });
   };
 };
 
