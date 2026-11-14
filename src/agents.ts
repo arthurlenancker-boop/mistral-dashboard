@@ -8,6 +8,17 @@ export interface Agent {
   inPipeline?: boolean;
 }
 
+/** Contrat commun prépendé au system prompt de chaque agent (qualité 2026 :
+ * contrat de sortie structuré + gestion explicite de l'incertitude). */
+export const COMMON_CONTRACT = `CONTRAT COMMUN (applique à tous les agents) :
+- STRUCTURE ta réponse avec des titres clairs ; tout bloc destiné à être consommé
+  par un autre agent ou parsé par du code doit être un JSON valide placé entre
+  les délimiteurs \`\`\`json ... \`\`\` (rien d'autre autour du JSON dans ce bloc).
+- NE JAMAIS inventer de faits, chiffres, durées, citations ou URLs. Si tu ne sais
+  pas ou si l'information manque dans le brief, écris explicitement "INCONNU" ou
+  "À VÉRIFIER" — l'hallucination confiante est interdite.
+- Reste factuel et concis, en français.`;
+
 export const SEED_AGENTS: Agent[] = [
   {
     id: "interviewer",

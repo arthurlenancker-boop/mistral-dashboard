@@ -1,7 +1,7 @@
 import http from "node:http";
 import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, extname } from "node:path";
-import { SEED_AGENTS, type Agent } from "./agents.js";
+import { SEED_AGENTS, COMMON_CONTRACT, type Agent } from "./agents.js";
 import {
   getAgents,
   saveAgents,
@@ -119,7 +119,7 @@ async function runPipeline(run: Run, task: string): Promise<void> {
     saveRun(run);
     try {
       const output = await complete([
-        { role: "system", content: agent.systemPrompt },
+        { role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` },
         { role: "user", content: buildBrief(task, previousOutputs) },
       ]);
       step.status = "done";
@@ -137,6 +137,50 @@ async function runPipeline(run: Run, task: string): Promise<void> {
     run.updatedAt = step.endedAt;
     saveRun(run);
   }
+  // Boucle de réflexion bornée : si le QA demande des corrections, le Monteur
+  // révise (max MAX_QA_REVISIONS itérations), puis le QA re-vérifie.
+  const MAX_REVISIONS = Number(process.env.MAX_QA_REVISIONS ?? 2);
+  const qaStep = run.steps.find((st) => st.agentName === "QA");
+  const monteurStep = run.steps.find((st) => st.agentName === "Monteur");
+  const qaAgent = agents.find((a) => a.id === qaStep?.agentId);
+  const monteurAgent = agents.find((a) => a.id === monteurStep?.agentId);
+  let revisions = 0;
+  while (
+    revisions < MAX_REVISIONS &&
+    qaStep?.output && /CORRECTIONS REQUISES/i.test(qaStep.output) &&
+    monteurStep && qaAgent && monteurAgent
+  ) {
+    revisions++;
+    const qaOutput = qaStep.output;
+    previousOutputs.length = 0;
+    for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+    // Le Monteur révise à partir des corrections du QA
+    monteurStep.status = "running";
+    run.updatedAt = new Date().toISOString();
+    saveRun(run);
+    const revised = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${monteurAgent.systemPrompt}` },
+      { role: "user", content: `${buildBrief(task, previousOutputs)}\n\nCORRECTIONS DU QA (itération ${revisions}/${MAX_REVISIONS}) :\n${qaOutput}\nApplique UNIQUEMENT ces corrections ciblées, ne réécris pas tout.` },
+    ]);
+    monteurStep.status = "done";
+    monteurStep.output = revised;
+    monteurStep.endedAt = new Date().toISOString();
+    previousOutputs.length = 0;
+    for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+    // Le QA re-vérifie
+    qaStep.status = "running";
+    saveRun(run);
+    const qaOut = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${qaAgent.systemPrompt}` },
+      { role: "user", content: buildBrief(task, previousOutputs) },
+    ]);
+    qaStep.status = "done";
+    qaStep.output = qaOut;
+    qaStep.endedAt = new Date().toISOString();
+    run.updatedAt = new Date().toISOString();
+    saveRun(run);
+  }
+
   run.status = "done";
   run.updatedAt = new Date().toISOString();
   saveRun(run);
@@ -311,7 +355,7 @@ async function handleApi(
     try {
       const answer = await getClient().chat.complete({
         model: "mistral-large-4",
-        messages: [{ role: "system", content: agent.systemPrompt }, ...history],
+        messages: [{ role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` }, ...history],
       });
       json(res, 200, {
         reply: answer.choices?.[0]?.message?.content ?? "",
