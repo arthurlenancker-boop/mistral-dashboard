@@ -25,10 +25,26 @@ Puis ouvrez http://localhost:3000.
 - `src/store.ts` — persistance des agents et des exécutions dans `data/*.json` (gitignoré).
 - `src/mistral.ts` — appels au modèle `mistral-large-4` via le SDK officiel.
 - `public/index.html` — UI vanilla (sidebar agents/tâches, chat direct par agent,
-  pipeline en direct via polling 2 s).
+  pipeline en direct via polling 2 s) avec une **vue graphe animée** : chaque agent
+  est un petit personnage animé relié aux autres par des chemins ; le personnage
+  actif pulse en orange et une bille parcourt le chemin au moment du passage du
+  message vers l'agent suivant.
 
 Chaque agent reçoit un brief contenant la tâche initiale + les sorties des
 agents précédents (`client.chat.complete({ model: "mistral-large-4", messages })`).
+
+## Skills mobilisés par agent
+
+Les system prompts des agents sont enrichis par les skills Mistral Studio de
+l'utilisateur :
+
+| Agent | Skills mobilisés |
+|---|---|
+| Chef de projet | — (brief structuré, règle d'or 1 idée = 1 scène = 1 phrase) |
+| Scénariste | `video-cours-production` (storyboard d'abord, prompts structurés avec beats horodatés, chapitrage, itération par corrections ciblées) + `explainer-video` (arc Problème → Enjeux → Solution → Comment → Payoff, script-first à ~2,3 mots/s, une seule analogie, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) |
+| Voix | `voxtral-narration` (normalisation du texte, `phoneme_hints`, tags inline `[emotion]`/`[pace]`, disfluences, régénération par segment) + `tts` (mode timeline, alignement SRT/audio, durées réelles par segment) |
+| Monteur | famille `remotion-*` : `remotion-best-practices` (animation par code frame-deterministic), `remotion-create`/`remotion-markup` (`useCurrentFrame`/`interpolate`, `useVideoConfig`, `<Sequence>`, `staticFile()`, durées dérivées des données), `remotion-captions` (type `Caption`, synchro sur l'audio), `remotion-render`/`remotion-studio` (vérification frame par frame avant encodage) |
+| QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
 ## API locale
 
