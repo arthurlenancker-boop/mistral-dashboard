@@ -119,6 +119,7 @@ export function readArtifactFile(runId: string, name: string): Buffer | null {
 export const ARTIFACT_MIME: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
+  ".mp4": "video/mp4",
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",

@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
 import { join, extname } from "node:path";
 import { SEED_AGENTS, type Agent } from "./agents.js";
 import {
@@ -28,6 +28,7 @@ import {
   saveArtifactFile,
   readArtifactFile,
   artifactMime,
+  artifactFilePath,
   synthesizeSpeech,
   TTS_MODEL,
   TTS_VOICE,
@@ -36,6 +37,7 @@ import {
   saveCourseFile,
   extractCourseText,
 } from "./tools.js";
+import { extractRemotionCode, renderVideoToFile } from "./render.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const PUBLIC_DIR = join(process.cwd(), "public");
@@ -203,6 +205,30 @@ async function produceArtifacts(run: Run): Promise<void> {
         montage,
       ),
     );
+  }
+
+  // Rendu MP4 réel depuis le code Remotion du Monteur (désactivable via RENDER_VIDEO=0)
+  if (montage && process.env.RENDER_VIDEO !== "0") {
+    const code = extractRemotionCode(montage);
+    if (code) {
+      try {
+        const workDir = join(process.cwd(), "data", "render", run.id);
+        const outFile = join(workDir, "video.mp4");
+        mkdirSync(workDir, { recursive: true });
+        renderVideoToFile(workDir, code, outFile);
+        const target = artifactFilePath(run.id, "video.mp4");
+        cpSync(outFile, target);
+        artifacts.push({ type: "video", name: "video.mp4", label: "Vidéo finale (MP4, rendu Remotion)" });
+      } catch (err) {
+        console.error("Erreur rendu MP4:", err);
+        artifacts.push({
+          type: "video",
+          name: "video.mp4",
+          label: "Vidéo finale (MP4, rendu Remotion)",
+          error: err instanceof Error ? err.message.split("\n")[0] : String(err),
+        });
+      }
+    }
   }
 
   run.artifacts = artifacts;

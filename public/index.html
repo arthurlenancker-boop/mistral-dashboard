@@ -186,6 +186,8 @@ async function showRun(id, poll) {
       if (a.error) return `<div class="artifact error">${esc(a.label)} — échec : ${esc(a.error)}</div>`;
       if (a.type === "audio")
         return `<div class="artifact"><strong>${esc(a.label)}</strong><br><audio controls preload="none" src="${url}"></audio></div>`;
+      if (a.type === "video")
+        return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
       return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
     }).join("");
     $("#content").innerHTML = graphSvg(run)

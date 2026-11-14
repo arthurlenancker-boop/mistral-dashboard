@@ -62,8 +62,9 @@ l'utilisateur :
 Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/` (gitignoré) et les affiche dans l'UI (section « 🎁 Livrables ») :
 
 - `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
-- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`, modèle `voxtral-small-latest` par défaut, surchargeable via `MISTRAL_TTS_MODEL` / `MISTRAL_TTS_VOICE`) à partir de la sortie de l'agent Voix
+- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`) à partir de la sortie de l'agent Voix
 - `montage.md` — plan de montage produit par l'agent Monteur
+- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps par défaut, 150 frames ; surchargeable via `RENDER_WIDTH/HEIGHT/FPS/DURATION_FRAMES`, désactivable via `RENDER_VIDEO=0`). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2`.
 
 Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
 

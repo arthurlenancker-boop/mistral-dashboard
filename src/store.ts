@@ -30,7 +30,7 @@ export interface RunStep {
 }
 
 export interface Artifact {
-  type: "audio" | "json" | "text";
+  type: "audio" | "json" | "text" | "video";
   name: string;
   label: string;
   error?: string;
