@@ -77,6 +77,9 @@
   }
   .agent-item:hover, .run-item:hover { background: var(--panel-2); }
   .agent-item.active, .run-item.active { background: var(--accent-soft); border-color: rgba(255, 112, 0, 0.4); }
+  .agent-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .agent-name { font-weight: 500; }
+  .agent-role { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent-item .del {
     color: var(--muted); border: none; background: none; cursor: pointer;
     font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
@@ -154,6 +157,9 @@
   .hero { max-width: 620px; }
   .hero p { font-size: 13.5px; }
   .hero-graph { margin-bottom: 20px; padding: 18px 10px 8px; }
+  .how { text-align: left; margin: 14px auto 0; max-width: 480px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+  .how b { color: var(--text); font-weight: 600; }
+  .hero-hint { margin-top: 14px; font-size: 12.5px; }
 
   /* --- Graphe animé du pipeline + règle de timeline --- */
   .graph {
@@ -184,6 +190,7 @@
   .node.done .bot { stroke: var(--ok); fill: var(--ok); animation: none; }
   .node.error .bot { stroke: var(--err); fill: var(--err); animation: none; }
   .node text { fill: var(--text); font-size: 11.5px; text-anchor: middle; font-family: var(--font-display); font-weight: 600; }
+  .node .node-role { fill: var(--muted); font-size: 8.5px; font-family: var(--font-body); font-weight: 400; }
   @keyframes bob { 50% { transform: translateY(-4px); } }
   @keyframes pulse { 50% { stroke-opacity: 0.25; } }
   .msg-dot { fill: var(--accent); }
@@ -256,7 +263,13 @@
       <div class="empty hero">
         <div class="graph hero-graph" id="hero-graph"></div>
         <strong>Prêt à produire.</strong>
-        <p>Lancez une nouvelle tâche : l'équipe d'agents (interview, storyboard, voix, montage, QA) produit votre vidéo de cours, et le rendu MP4 tombe dans les livrables.</p>
+        <p>Donnez votre cours, obtenez une vidéo. Voici le fonctionnement :</p>
+        <ol class="how">
+          <li><b>1. Lancez une tâche</b> (« + Nouvelle tâche ») en décrivant la vidéo — ou choisissez <b>🎤 Mode interview</b> : l'agent Interviewer vous pose les bonnes questions et rédige le brief.</li>
+          <li><b>2. Le pipeline tourne tout seul</b> : 5 agents se passent le travail en direct (graphe ci-dessus) — brief → storyboard → voix off → montage → contrôle qualité.</li>
+          <li><b>3. Récupérez les livrables</b> en bas de la tâche : transcription JSON, voix off MP3, plan de montage et <b>vidéo MP4 rendue</b>.</li>
+        </ol>
+        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement. La clé API se règle dans ⚙ Paramètres.</p>
       </div>
     </div>
   </main>
@@ -278,7 +291,8 @@ async function refreshSidebar() {
   runs = (await api("/api/runs")).data;
   $("#agents").innerHTML = agents.map((a) =>
     `<div class="agent-item ${selectedAgent === a.id ? "active" : ""}" data-agent="${a.id}">
-       <span class="dot ok" title="en ligne"></span><span>${a.name}</span>
+       <span class="dot ok" title="en ligne"></span>
+       <span class="agent-meta"><span class="agent-name">${esc(a.name)}</span><span class="agent-role">${esc(a.role ?? "")}</span></span>
        <button class="del" data-del="${a.id}" title="Supprimer">×</button>
      </div>`).join("");
   $("#runs").innerHTML = runs.map((r) =>
@@ -322,7 +336,7 @@ function showChat(agent, onReply) {
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
 function graphSvg(run) {
-  const W = 1000, H = 162, y = 76, steps = run.steps ?? [];
+  const W = 1000, H = 172, y = 74, steps = run.steps ?? [];
   const n = steps.length;
   if (!n) return "";
   const xs = steps.map((_, i) => (n === 1 ? W / 2 : 80 + (i * (W - 160)) / (n - 1)));
@@ -365,6 +379,7 @@ function graphSvg(run) {
       </g>
       ${check}
       <text y="42">${esc(s.agentName)}</text>
+      <text class="node-role" y="55">${esc((agents.find((a) => a.name === s.agentName)?.role ?? "").slice(0, 34))}</text>
     </g>`;
   });
   return `<div class="graph"><svg viewBox="0 0 ${W} ${H}">${defs}${ruler}${edges}${nodes}</svg></div>`;
