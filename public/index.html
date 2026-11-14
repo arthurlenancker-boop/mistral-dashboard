@@ -195,6 +195,24 @@
   @keyframes pulse { 50% { stroke-opacity: 0.25; } }
   .msg-dot { fill: var(--accent); }
 
+  /* --- Timeline façon banc de montage --- */
+  .timeline {
+    background: var(--panel); border: 1px solid #eceade; border-radius: var(--radius);
+    padding: 10px 10px 4px; margin-bottom: 18px; box-shadow: var(--shadow);
+  }
+  .timeline svg { width: 100%; height: auto; display: block; }
+  .tl-ruler line { stroke: var(--border); }
+  .tl-ruler text { fill: var(--muted); font-size: 9px; font-family: var(--font-mono); font-feature-settings: "tnum"; }
+  .tl-lane { stroke: #f0ede4; stroke-width: 1; }
+  .tl-clip { rx: 4; stroke: rgba(26,22,12,0.08); }
+  .tl-clip.pending { fill: #eceadf; }
+  .tl-clip.running { fill: var(--accent); }
+  .tl-clip.done { fill: var(--ok); }
+  .tl-clip.error { fill: var(--err); }
+  .tl-label { fill: #fff; font-size: 9.5px; font-family: var(--font-body); font-weight: 600; }
+  .tl-label.pending { fill: var(--muted); }
+  .tl-playhead { stroke: var(--accent-ink); stroke-width: 1.5; stroke-dasharray: 3 3; }
+
   /* --- Artefacts / livrables --- */
   .artifact {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
@@ -385,6 +403,41 @@ function graphSvg(run) {
   return `<div class="graph"><svg viewBox="0 0 ${W} ${H}">${defs}${ruler}${edges}${nodes}</svg></div>`;
 }
 
+function timelineHtml(run) {
+  const steps = run.steps ?? [];
+  if (!steps.length) return "";
+  const W = 1000, laneH = 26, top = 24, H = top + steps.length * laneH + 8;
+  const t0 = new Date(run.createdAt).getTime();
+  const lastEnd = Math.max(...steps.map((s) => (s.endedAt ? new Date(s.endedAt).getTime() : 0)), 0);
+  const now = Date.now();
+  const t1 = Math.max(lastEnd, run.status === "running" ? now : t0 + 1, t0 + 1);
+  const span = Math.max(t1 - t0, 1000);
+  const X = (t) => 60 + ((t - t0) / span) * (W - 80);
+  const fmt = (ms) => { const sec = Math.round((ms - t0) / 1000); return `+${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+  let ruler = `<g class="tl-ruler"><line x1="60" y1="14" x2="${W - 20}" y2="14"/>`;
+  for (let x = 60; x <= W - 20; x += 98) {
+    ruler += `<line x1="${x}" y1="10" x2="${x}" y2="18"/><text x="${x}" y="8">${fmt(t0 + ((x - 60) / (W - 80)) * span)}</text>`;
+  }
+  ruler += `</g>`;
+  let lanes = "", clips = "";
+  steps.forEach((s, i) => {
+    const y = top + i * laneH;
+    lanes += `<line class="tl-lane" x1="60" y1="${y + laneH / 2}" x2="${W - 20}" y2="${y + laneH / 2}"/>`;
+    const sx = s.startedAt ? X(new Date(s.startedAt).getTime()) : null;
+    const ex = s.endedAt ? X(new Date(s.endedAt).getTime()) : (s.status === "running" && sx !== null ? X(now) : null);
+    if (sx !== null && ex !== null) {
+      const w = Math.max(ex - sx, 14);
+      clips += `<rect class="tl-clip ${s.status}" x="${sx}" y="${y + 3}" width="${w}" height="${laneH - 8}"/>`;
+      clips += `<text class="tl-label ${s.status === "pending" ? "pending" : ""}" x="${sx + 6}" y="${y + laneH / 2 + 3.5}">${esc(s.agentName)}</text>`;
+    } else {
+      clips += `<rect class="tl-clip pending" x="60" y="${y + 3}" width="10" height="${laneH - 8}"/>`;
+      clips += `<text class="tl-label pending" x="76" y="${y + laneH / 2 + 3.5}">${esc(s.agentName)}</text>`;
+    }
+  });
+  const playhead = run.status === "running" ? `<line class="tl-playhead" x1="${X(now)}" y1="4" x2="${X(now)}" y2="${H - 4}"/>` : "";
+  return `<div class="timeline"><svg viewBox="0 0 ${W} ${H}">${ruler}${lanes}${clips}${playhead}</svg></div>`;
+}
+
 async function showRun(id, poll) {
   selectedAgent = null; selectedRun = id;
   stopPolling();
@@ -399,7 +452,7 @@ async function showRun(id, poll) {
         return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
       return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
     }).join("");
-    $("#content").innerHTML = graphSvg(run)
+    $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
       + run.steps.map((s) => `
       <div class="step">
