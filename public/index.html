@@ -221,6 +221,10 @@ $("#open-settings").onclick = async () => {
     <p class="warn">⚠ La clé enregistrée ici est stockée en clair dans <code>data/settings.json</code> (gitignoré, local uniquement). Préférez la variable <code>MISTRAL_API_KEY</code> (.env) pour la production. Ne partagez jamais votre clé. La clé n'est jamais renvoyée par l'API (statut masqué uniquement).</p>
     <h3 style="margin-top:14px">🔊 Voix (TTS)</h3>
     <div id="tts-status" style="font-size:13px;color:var(--muted)"></div>
+    <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">🎙️ Importer une voix de référence (.mp3/.wav, 25 Mo max) — remplace <code>data/voice-ref.mp3</code>, utilisée en clonage zero-shot :</label>
+    <input id="voice-file" type="file" accept=".mp3,.wav" style="font-size:13px;color:var(--muted)" />
+    <div style="margin-top:8px"><button class="primary" id="upload-voice">Uploader la voix</button></div>
+    <div id="voice-status" style="font-size:12px;margin-top:6px"></div>
   </div>`;
   const refresh = async () => {
     const { data } = await api("/api/settings");
@@ -239,17 +243,55 @@ $("#open-settings").onclick = async () => {
     await refresh();
   };
   $("#del-key").onclick = async () => { await api("/api/settings", { method: "DELETE" }); await refresh(); };
+  $("#upload-voice").onclick = async () => {
+    const f = $("#voice-file").files[0];
+    if (!f) { alert("Choisissez un fichier .mp3 ou .wav"); return; }
+    const b64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1]);
+      r.onerror = reject;
+      r.readAsDataURL(f);
+    });
+    const { status, data } = await api("/api/settings/voice-ref", { method: "POST", body: { filename: f.name, contentBase64: b64 } });
+    $("#voice-status").textContent = status === 200 ? `✔ Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)` : `✘ ${data.error ?? "Erreur"}`;
+    $("#voice-status").style.color = status === 200 ? "#3ecf5e" : "#ff5c5c";
+    await refresh();
+  };
   await refresh();
   refreshSidebar();
 };
 
 $("#new-task").onclick = async () => {
-  const task = prompt("Décrivez la vidéo de cours à produire :");
-  if (!task) return;
-  const { status, data } = await api("/api/runs", { method: "POST", body: { task } });
-  if (status !== 201) { alert(data.error ?? "Erreur"); return; }
-  await refreshSidebar();
-  showRun(data.id, true);
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = "Nouvelle tâche";
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>▶ Nouvelle vidéo de cours</h3>
+    <textarea id="task-input" rows="4" placeholder="Décrivez la vidéo à produire (sujet, public, durée, style)…" style="width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
+    <label style="font-size:13px;color:var(--muted);display:block;margin:10px 0 4px">📎 Joindre le cours (.md/.txt direct, ou .pdf/.jpg/.png via OCR Mistral, 20 Mo max) — le texte extrait est injecté dans le brief des agents :</label>
+    <input id="course-file" type="file" accept=".md,.txt,.pdf,.jpg,.jpeg,.png" style="font-size:13px;color:var(--muted)" />
+    <div style="margin-top:12px"><button class="primary" id="launch-task">Lancer le pipeline</button></div>
+  </div>`;
+  refreshSidebar();
+  $("#launch-task").onclick = async () => {
+    const task = $("#task-input").value.trim();
+    if (!task) { alert("Décrivez d'abord la tâche"); return; }
+    const body = { task };
+    const f = $("#course-file").files[0];
+    if (f) {
+      const b64 = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1]);
+        r.onerror = reject;
+        r.readAsDataURL(f);
+      });
+      body.course = { name: f.name, contentBase64: b64 };
+    }
+    const { status, data } = await api("/api/runs", { method: "POST", body });
+    if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+    await refreshSidebar();
+    showRun(data.id, true);
+  };
 };
 
 $("#agents").onclick = async (e) => {

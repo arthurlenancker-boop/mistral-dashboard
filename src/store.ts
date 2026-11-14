@@ -44,6 +44,7 @@ export interface Run {
   updatedAt: string;
   steps: RunStep[];
   artifacts?: Artifact[];
+  course?: string;
 }
 
 export interface ChatMessage {

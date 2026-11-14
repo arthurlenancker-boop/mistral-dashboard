@@ -73,9 +73,20 @@ Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'U
 
 ## Voix clonée (Voxtral)
 
-- Par défaut, la synthèse utilise le **clonage zero-shot** depuis `data/voice-ref.mp3` (champ `ref_audio`, base64) — fichier gitignoré, à remplacer par votre propre enregistrement (MP3/WAV, voix claire d'un seul locuteur).
+- Par défaut, la synthèse utilise le **clonage zero-shot** depuis `data/voice-ref.mp3` (champ `ref_audio`, base64) — fichier gitignoré.
+- **Changer de voix sans toucher au serveur** : dans ⚙ Paramètres → « Importer une voix de référence », uploadez votre propre MP3/WAV (25 Mo max, voix claire d'un seul locuteur) via `POST /api/settings/voice-ref`. Le prochain TTS l'utilisera.
 - Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
 - Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
+
+## Joindre un cours à une tâche
+
+Au lancement d'une tâche (« + Nouvelle tâche »), joignez un fichier de cours :
+
+- **.md / .txt** : texte repris tel quel (2 Mo max)
+- **.pdf / .jpg / .jpeg / .png** (20 Mo max) : texte extrait via l'**API OCR Mistral** (`POST /v1/ocr`, `mistral-ocr-latest`) — idéal pour les feuilles scannées/photos
+- **OneNote** : exportez la page en `.md`/`.txt` (Fichier → Exporter) ou copiez-collez le texte dans un `.txt`, puis joignez-le
+
+Le texte extrait est enregistré dans `data/courses/`, injecté dans le brief initial du pipeline (les agents travaillent directement dessus) et ajouté aux livrables téléchargeables.
 | GET | `/api/runs` | Liste des exécutions |
 | GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
 
