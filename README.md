@@ -40,10 +40,10 @@ l'utilisateur :
 
 | Agent | Skills mobilisés |
 |---|---|
-| Chef de projet | — (brief structuré, règle d'or 1 idée = 1 scène = 1 phrase) |
-| Scénariste | `video-cours-production` (storyboard d'abord, prompts structurés avec beats horodatés, chapitrage, itération par corrections ciblées) + `explainer-video` (arc Problème → Enjeux → Solution → Comment → Payoff, script-first à ~2,3 mots/s, une seule analogie, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) |
+| Chef de projet | `brainstorming` + `grill-with-docs` (clarifier objectifs/non-objectifs/contraintes avant le brief) + `writing-plans` (mini-plan numéroté avant dispatch). Règle **adaptée TDA/H & TSA** (remplace « 1 idée = 1 scène = 1 phrase ») : 1 idée par scène, scènes ≈ 5–8 s, ancrage visuel dédié, transitions explicites, récapitulatifs, charge cognitive limitée |
+| Scénariste | `video-cours-production` + `explainer-video` (storyboard d'abord, arc Problème → Enjeux → Solution → Comment → Payoff, beats horodatés, chapitrage, specs sous-titres ≤ 2 lignes / ≤ 42 caractères) — avec la règle TDA/H-TSA ci-dessus |
 | Voix | `voxtral-narration` (normalisation du texte, `phoneme_hints`, tags inline `[emotion]`/`[pace]`, disfluences, régénération par segment) + `tts` (mode timeline, alignement SRT/audio, durées réelles par segment) |
-| Monteur | famille `remotion-*` : `remotion-best-practices` (animation par code frame-deterministic), `remotion-create`/`remotion-markup` (`useCurrentFrame`/`interpolate`, `useVideoConfig`, `<Sequence>`, `staticFile()`, durées dérivées des données), `remotion-captions` (type `Caption`, synchro sur l'audio), `remotion-render`/`remotion-studio` (vérification frame par frame avant encodage) |
+| Monteur | famille `remotion-*` (code frame-deterministic, `useCurrentFrame`/`interpolate`, `<Sequence>`, `staticFile()`, captions `Caption` synchronisées, `remotion still` avant encodage) + styles au choix : `whiteboard-animation` (draw-on SVG + main marqueur), `diagram-animation` (révélation nœuds → arêtes → labels, focus+contexte), `isometric-animation` (2,5D, ombrage par face, lift en Z) + rendu statique `prefers-reduced-motion` |
 | QA | `video-cours-production` (QA frame par frame du master rendu, corrections ciblées une valeur absolue à la fois) + `remotion-captions` (lisibilité et synchro des sous-titres : ≤ 2 lignes, ≤ 42 caractères/ligne, ≥ 1 s, zones de sécurité) |
 
 ## API locale
