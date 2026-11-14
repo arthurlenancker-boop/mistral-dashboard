@@ -248,6 +248,21 @@
   .skeleton.w40 { width: 40%; } .skeleton.w65 { width: 65%; } .skeleton.w85 { width: 85%; }
   @keyframes shimmer { to { background-position: -200% 0; } }
 
+  #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 99; }
+  .toast {
+    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--ok);
+    color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    box-shadow: var(--shadow); animation: toast-in 0.18s ease; max-width: 340px;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .toast.error { border-left-color: var(--err); }
+  .toast.out { opacity: 0; transform: translateY(6px); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  .side-empty { color: var(--muted); font-size: 12px; padding: 6px 4px; }
+  .del.confirm { color: #fff; background: var(--err); }
+  button.loading { opacity: 0.6; pointer-events: none; }
+  .chat-log .msg { animation: toast-in 0.15s ease; }
+
   @media (prefers-reduced-motion: reduce) {
     .node .bot { animation: none; }
     .node.active .ring { animation: none; }
@@ -293,6 +308,18 @@
   </main>
 <script>
 const $ = (s) => document.querySelector(s);
+
+function toast(msg, type = "ok") {
+  let c = document.querySelector("#toasts");
+  if (!c) { c = document.createElement("div"); c.id = "toasts"; document.body.appendChild(c); }
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.classList.add("out"), 3400);
+  setTimeout(() => t.remove(), 3900);
+}
+
 let agents = [], runs = [], selectedAgent = null, selectedRun = null, pollTimer = null;
 
 async function api(path, opts) {
@@ -313,17 +340,21 @@ async function refreshSidebar() {
        <span class="agent-meta"><span class="agent-name">${esc(a.name)}</span><span class="agent-role">${esc(a.role ?? "")}</span></span>
        <button class="del" data-del="${a.id}" title="Supprimer">×</button>
      </div>`).join("");
-  $("#runs").innerHTML = runs.map((r) =>
+  $("#runs").innerHTML = runs.length ? runs.map((r) =>
     `<div class="run-item ${selectedRun === r.id ? "active" : ""}" data-run="${r.id}">
        <span class="dot ${r.status}"></span><span class="run-task">${esc(r.task)}</span><span class="badge ${r.status}">${r.status}</span>
-     </div>`).join("");
+     </div>`).join("") : '<div class="side-empty">Aucune tâche pour l’instant — lancez « + Nouvelle tâche ».</div>';
 }
 
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
+function chatHistKey(id) { return `chat:${id}`; }
+
 function showChat(agent, onReply) {
   stopPolling();
   selectedRun = null; selectedAgent = agent.id;
+  if (location.hash !== `#/agent/${agent.id}`) location.hash = `#/agent/${agent.id}`;
+  document.title = `${agent.name} — Mistral Agents Dashboard`;
   $("#view-title").textContent = `Chat avec ${agent.name}`;
   $("#content").innerHTML = `<div class="chat" style="height:100%">
     <div class="chat-log" id="chat-log"></div>
@@ -332,7 +363,9 @@ function showChat(agent, onReply) {
       <button class="primary" type="submit">Envoyer</button>
     </form></div>`;
   const log = $("#chat-log");
-  const history = [];
+  const history = JSON.parse(localStorage.getItem(chatHistKey(agent.id)) ?? "[]");
+  for (const m of history) log.insertAdjacentHTML("beforeend", `<div class="msg ${m.role}">${esc(m.content)}</div>`);
+  log.scrollTop = log.scrollHeight;
   $("#chat-form").onsubmit = async (e) => {
     e.preventDefault();
     const text = $("#chat-input").value.trim();
@@ -340,10 +373,12 @@ function showChat(agent, onReply) {
     $("#chat-input").value = "";
     log.insertAdjacentHTML("beforeend", `<div class="msg user">${esc(text)}</div>`);
     history.push({ role: "user", content: text });
+    localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
     log.scrollTop = log.scrollHeight;
     const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { messages: history } });
     const reply = data.reply ?? "Erreur : " + (data.error ?? "");
     history.push({ role: "assistant", content: reply });
+    localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
     log.insertAdjacentHTML("beforeend", `<div class="msg assistant">${esc(reply)}</div>`);
     log.scrollTop = log.scrollHeight;
     if (onReply) onReply(reply, log);
@@ -440,6 +475,7 @@ function timelineHtml(run) {
 
 async function showRun(id, poll) {
   selectedAgent = null; selectedRun = id;
+  if (location.hash !== `#/run/${id}`) location.hash = `#/run/${id}`;
   stopPolling();
   const render = (run) => {
     $("#view-title").textContent = run.task;
@@ -481,6 +517,7 @@ $("#open-settings").onclick = async () => {
     <div id="settings-status" style="font-size:13px;color:var(--muted)">chargement…</div>
     <input id="apikey-input" type="password" placeholder="mstrl-…" autocomplete="off" />
     <button class="primary" id="save-key">Enregistrer la clé</button>
+    <button class="ghost" id="test-key">Tester la clé</button>
     <button class="ghost" id="del-key">Supprimer la clé enregistrée</button>
     <p class="warn">⚠ La clé enregistrée ici est stockée en clair dans <code>data/settings.json</code> (gitignoré, local uniquement). Préférez la variable <code>MISTRAL_API_KEY</code> (.env) pour la production. Ne partagez jamais votre clé. La clé n'est jamais renvoyée par l'API (statut masqué uniquement).</p>
     <h3 style="margin-top:14px">🔊 Voix (TTS)</h3>
@@ -502,9 +539,14 @@ $("#open-settings").onclick = async () => {
     const v = $("#apikey-input").value.trim();
     if (!v) return;
     const { status, data } = await api("/api/settings", { method: "POST", body: { apiKey: v } });
-    if (status !== 200) { alert(data.error ?? "Erreur"); return; }
+    if (status !== 200) { toast(data.error ?? "Erreur", "error"); return; }
     $("#apikey-input").value = "";
+    toast("Clé enregistrée");
     await refresh();
+  };
+  $("#test-key").onclick = async () => {
+    const { status, data } = await api("/api/settings/test");
+    toast(status === 200 ? `Clé valide ✔ (${data.models} modèles)` : `Clé invalide : ${data.error}`, status === 200 ? "ok" : "error");
   };
   $("#del-key").onclick = async () => { await api("/api/settings", { method: "DELETE" }); await refresh(); };
   $("#upload-voice").onclick = async () => {
@@ -517,6 +559,8 @@ $("#open-settings").onclick = async () => {
       r.readAsDataURL(f);
     });
     const { status, data } = await api("/api/settings/voice-ref", { method: "POST", body: { filename: f.name, contentBase64: b64 } });
+    if (status === 200) toast(`Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)`);
+    else toast(data.error ?? "Erreur", "error");
     $("#voice-status").textContent = status === 200 ? `✔ Voix importée (${(data.bytes / 1048576).toFixed(1)} Mo)` : `✘ ${data.error ?? "Erreur"}`;
     $("#voice-status").style.color = status === 200 ? "#3ecf5e" : "#ff5c5c";
     await refresh();
@@ -554,8 +598,12 @@ $("#new-task").onclick = async () => {
       });
       body.course = { name: f.name, contentBase64: b64 };
     }
+    const btn = $("#launch-task");
+    btn.classList.add("loading"); btn.textContent = "Lancement…";
     const { status, data } = await api("/api/runs", { method: "POST", body });
-    if (status !== 201) { alert(data.error ?? "Erreur"); return; }
+    btn.classList.remove("loading"); btn.textContent = "Lancer le pipeline";
+    if (status !== 201) { toast(data.error ?? "Erreur", "error"); return; }
+    toast("Tâche lancée — le pipeline démarre");
     await refreshSidebar();
     showRun(data.id, true);
   };
@@ -579,7 +627,19 @@ $("#new-task").onclick = async () => {
 
 $("#agents").onclick = async (e) => {
   const del = e.target.dataset.del;
-  if (del) { e.stopPropagation(); await api(`/api/agents/${del}`, { method: "DELETE" }); refreshSidebar(); return; }
+  if (del) {
+    e.stopPropagation();
+    const btn = e.target;
+    if (!btn.classList.contains("confirm")) {
+      btn.classList.add("confirm"); btn.textContent = "✓";
+      setTimeout(() => { btn.classList.remove("confirm"); btn.textContent = "×"; }, 3000);
+      return;
+    }
+    const { status } = await api(`/api/agents/${del}`, { method: "DELETE" });
+    if (status === 200) toast("Agent supprimé"); else toast("Suppression impossible", "error");
+    refreshSidebar();
+    return;
+  }
   const id = e.target.closest("[data-agent]")?.dataset.agent;
   if (id) showChat(agents.find((a) => a.id === id));
 };
@@ -598,7 +658,19 @@ function renderHeroGraph() {
   el.innerHTML = svg.replace(/^<div class="graph">/, "").replace(/<\/div>$/, "");
 }
 
-refreshSidebar().then(renderHeroGraph);
+function route() {
+  const h = location.hash;
+  const mRun = h.match(/^#\/run\/(.+)$/);
+  const mAgent = h.match(/^#\/agent\/(.+)$/);
+  if (mRun && selectedRun !== mRun[1]) showRun(mRun[1], false);
+  else if (mAgent && selectedAgent !== mAgent[1]) {
+    const a = agents.find((x) => x.id === mAgent[1]);
+    if (a) showChat(a);
+  }
+}
+window.addEventListener("hashchange", route);
+
+refreshSidebar().then(() => { renderHeroGraph(); route(); });
 </script>
 </body>
 </html>

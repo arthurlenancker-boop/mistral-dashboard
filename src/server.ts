@@ -381,6 +381,16 @@ async function handleApi(
     return true;
   }
 
+  if (pathname === "/api/settings/test" && method === "GET") {
+    try {
+      const r = await getClient().models.list();
+      json(res, 200, { ok: true, models: Array.isArray(r.data) ? r.data.length : 0 });
+    } catch (err) {
+      json(res, 401, { ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+    return true;
+  }
+
   if (pathname === "/api/settings" && method === "POST") {
     const body = await readBody(req);
     if (typeof body.apiKey !== "string" || !body.apiKey.trim()) {
