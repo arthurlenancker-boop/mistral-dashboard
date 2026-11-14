@@ -160,9 +160,12 @@ frame-deterministic) :
 Prévoir dans tous les cas un rendu statique de secours (prefers-reduced-motion).
 
 SPÉCIFICATION DU RENDU (le dashboard rend réellement le MP4) : composition
-1920×1080 à 30 fps, durée par défaut 150 frames (5 s, surchargeable par env
-RENDER_*). Le composant exporté (quel que soit son nom) est automatiquement
-relié à l'export « Video » — exporte UN seul composant React.
+1920×1080 à 30 fps. LA DURÉE N'EST PAS FIXÉE À L'AVANCE : elle est dérivée du
+contenu du cours — exporte obligatoirement une fonction \`calculateMetadata\`
+qui fixe \`durationInFrames\` à partir de la somme des durées RÉELLES des segments
+audio (tableau de timing), jamais une valeur en dur. Le composant exporté (quel
+que soit son nom) est automatiquement relié à l'export « Video » — exporte UN
+seul composant React.
 
 Produis le composant Remotion complet (composition, séquences, captions
 timées, audio) plutôt qu'une description vague. Itération par corrections

@@ -31,7 +31,7 @@ registerRoot(RemotionRoot);
 `;
 
 const ROOT_TSX = `import { Composition } from "remotion";
-import { Video } from "./Video";
+import { Video, calcMeta } from "./Video";
 
 export const RemotionRoot = () => (
   <Composition
@@ -41,15 +41,18 @@ export const RemotionRoot = () => (
     fps={${RENDER_FPS}}
     width={${RENDER_WIDTH}}
     height={${RENDER_HEIGHT}}
+    calculateMetadata={calcMeta}
   />
 );
 `;
 
-// Relie n'importe quel composant exporté par l'agent à l'export "Video" attendu.
+// Relie n'importe quel composant exporté par l'agent à l'export "Video" attendu,
+// et propage calculateMetadata (durée dérivée du contenu, ex. somme des durées audio).
 const VIDEO_TSX = `import * as Agent from "./Agent";
 const mod = Agent as unknown as Record<string, unknown>;
 const C = (mod.Video ?? mod.RemotionVideo ?? mod.MyComp ?? mod.default ?? Object.values(mod)[0]) as React.ComponentType;
 export const Video: React.FC = () => <C />;
+export const calcMeta = (mod.calculateMetadata ?? undefined) as any;
 `;
 
 let templateReady = false;
