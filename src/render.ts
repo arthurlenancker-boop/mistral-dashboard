@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, cpSync, rmSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, cpSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 
 const DATA_DIR = join(process.cwd(), "data");
@@ -85,8 +85,8 @@ export function renderVideoToFile(workDir: string, agentCode: string, outFile: s
   rmSync(workDir, { recursive: true, force: true });
   mkdirSync(join(workDir, "src"), { recursive: true });
   cpSync(join(TEMPLATE_DIR, "package.json"), join(workDir, "package.json"));
-  // node_modules du template partagé (lecture seule suffisant pour le render)
-  cpSync(join(TEMPLATE_DIR, "node_modules"), join(workDir, "node_modules"), { recursive: true });
+  // node_modules du template partagé via symlink (évite de copier des centaines de Mo par rendu)
+  symlinkSync(join(TEMPLATE_DIR, "node_modules"), join(workDir, "node_modules"), "dir");
   writeFileSync(join(workDir, "src", "index.ts"), INDEX_TS);
   writeFileSync(join(workDir, "src", "Root.tsx"), ROOT_TSX);
   writeFileSync(join(workDir, "src", "Video.tsx"), VIDEO_TSX);
@@ -96,8 +96,4 @@ export function renderVideoToFile(workDir: string, agentCode: string, outFile: s
     ["remotion", "render", "src/index.ts", "Video", outFile, "--codec", "h264"],
     { cwd: workDir, stdio: "pipe", timeout: RENDER_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024 },
   );
-}
-
-export function listRenderWorks(): string[] {
-  return existsSync(RENDER_DIR) ? readdirSync(RENDER_DIR).filter((d) => d !== "template") : [];
 }

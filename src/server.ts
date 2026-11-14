@@ -100,10 +100,15 @@ function serveStatic(
   return true;
 }
 
-async function runPipeline(run: Run, task: string): Promise<void> {
-  const agents = getAgents()
+/** Agents du pipeline : agents seed, hors agents interactifs, triés par ordre. */
+function pipelineAgents(): Agent[] {
+  return getAgents()
     .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
     .sort((a, b) => a.order - b.order);
+}
+
+async function runPipeline(run: Run, task: string): Promise<void> {
+  const agents = pipelineAgents();
   const previousOutputs: { agentName: string; output: string }[] = [];
   for (const step of run.steps) {
     const agent = agents.find((a) => a.id === step.agentId);
@@ -281,10 +286,6 @@ async function handleApi(
       json(res, 200, { ok: true });
       return true;
     }
-    if (method === "POST" && pathname.endsWith("/chat")) {
-      json(res, 404, { error: "Chemin introuvable" });
-      return true;
-    }
   }
 
   const chatMatch = pathname.match(/^\/api\/agents\/([^/]+)\/chat$/);
@@ -385,9 +386,7 @@ async function handleApi(
       return true;
     }
     const task = String(body.task).trim();
-    const agents = getAgents()
-      .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
-      .sort((a, b) => a.order - b.order);
+    const agents = pipelineAgents();
     const now = new Date().toISOString();
     const steps: RunStep[] = agents.map((a) => ({
       agentId: a.id,
