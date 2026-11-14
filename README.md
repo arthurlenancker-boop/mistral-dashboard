@@ -25,7 +25,10 @@ Puis ouvrez http://localhost:3000.
 - `src/store.ts` — persistance des agents et des exécutions dans `data/*.json` (gitignoré).
 - `src/mistral.ts` — appels au modèle `mistral-large-4` via le SDK officiel.
 - `public/index.html` — UI vanilla (sidebar agents/tâches, chat direct par agent,
-  pipeline en direct via polling 2 s).
+  pipeline en direct via polling 2 s) avec une **vue graphe animée** : chaque agent
+  est un petit personnage animé relié aux autres par des chemins ; le personnage
+  actif pulse en orange et une bille parcourt le chemin au moment du passage du
+  message vers l'agent suivant.
 
 Chaque agent reçoit un brief contenant la tâche initiale + les sorties des
 agents précédents (`client.chat.complete({ model: "mistral-large-4", messages })`).

@@ -36,6 +36,22 @@
   .chat-form { display:flex; gap:8px; padding:14px 20px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; }
   .empty { color:var(--muted); margin:auto; text-align:center; }
+  /* --- Vue graphe animée du pipeline --- */
+  .graph { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; margin-bottom:16px; }
+  .graph svg { width:100%; height:auto; display:block; }
+  .edge { fill:none; stroke:var(--border); stroke-width:2; stroke-dasharray:6 5; }
+  .edge.lit { stroke:var(--accent); stroke-dasharray:none; }
+  .node .ring { fill:#10141b; stroke:var(--border); stroke-width:2; }
+  .node.active .ring { stroke:var(--accent); animation:pulse 0.9s ease-in-out infinite; }
+  .node.done .ring { stroke:#3ecf5e; }
+  .node.error .ring { stroke:#ff5c5c; }
+  .node .bot { stroke:#8b93a3; fill:#8b93a3; stroke-width:2.5; stroke-linecap:round; animation:bob 1.4s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
+  .node.active .bot { stroke:var(--accent); fill:var(--accent); animation-duration:0.45s; }
+  .node.done .bot { stroke:#3ecf5e; fill:#3ecf5e; animation:none; }
+  .node.error .bot { stroke:#ff5c5c; fill:#ff5c5c; animation:none; }
+  .node text { fill:var(--text); font-size:11px; text-anchor:middle; font-family:inherit; }
+  @keyframes bob { 50% { transform:translateY(-4px); } }
+  @keyframes pulse { 50% { stroke-opacity:0.25; } }
 </style>
 </head>
 <body>
@@ -116,12 +132,46 @@ function showChat(agent) {
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
+function graphSvg(run) {
+  const W = 1000, H = 150, y = 62, steps = run.steps ?? [];
+  const n = steps.length;
+  if (!n) return "";
+  const xs = steps.map((_, i) => (n === 1 ? W / 2 : 80 + (i * (W - 160)) / (n - 1)));
+  let edges = "", nodes = "";
+  steps.forEach((s, i) => {
+    const x = xs[i];
+    const cls = s.status === "running" ? "active" : s.status === "done" ? "done" : s.status === "error" ? "error" : "";
+    if (i > 0) {
+      const x0 = xs[i - 1];
+      const d = `M ${x0 + 27} ${y} C ${x0 + 75} ${y - 34}, ${x - 75} ${y - 34}, ${x - 27} ${y}`;
+      const lit = s.status === "running" || s.status === "done";
+      edges += `<path class="edge ${lit ? "lit" : ""}" d="${d}"/>`;
+      if (s.status === "running") {
+        edges += `<circle r="5" fill="var(--accent)"><animateMotion dur="0.9s" repeatCount="1" path="${d}"/></circle>`;
+      }
+    }
+    nodes += `<g class="node ${cls}" transform="translate(${x} ${y})">
+      <circle class="ring" r="24"/>
+      <g class="bot">
+        <circle cx="0" cy="-11" r="6" stroke="none"/>
+        <line x1="0" y1="-5" x2="0" y2="7"/>
+        <line x1="0" y1="-1" x2="-8" y2="5"/>
+        <line x1="0" y1="-1" x2="8" y2="5"/>
+        <line x1="0" y1="7" x2="-6" y2="17"/>
+        <line x1="0" y1="7" x2="6" y2="17"/>
+      </g>
+      <text y="42">${esc(s.agentName)}</text>
+    </g>`;
+  });
+  return `<div class="graph"><svg viewBox="0 0 ${W} ${H}">${edges}${nodes}</svg></div>`;
+}
+
 async function showRun(id, poll) {
   selectedAgent = null; selectedRun = id;
   stopPolling();
   const render = (run) => {
     $("#view-title").textContent = run.task;
-    $("#content").innerHTML = run.steps.map((s) => `
+    $("#content").innerHTML = graphSvg(run) + run.steps.map((s) => `
       <div class="step">
         <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : ""}
