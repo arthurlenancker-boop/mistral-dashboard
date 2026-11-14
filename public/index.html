@@ -36,6 +36,15 @@
   .chat-form { display:flex; gap:8px; padding:14px 20px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; }
   .empty { color:var(--muted); margin:auto; text-align:center; }
+  .artifact { padding:8px 10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; font-size:13px; }
+  .artifact a { color:var(--accent); }
+  .artifact.error { border-color:#3a1414; color:#ff5c5c; }
+  .artifact audio { width:100%; margin-top:6px; }
+  .settings { max-width:520px; }
+  .settings input { width:100%; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; margin:6px 0 10px; }
+  .settings .warn { font-size:12px; color:#ffb020; margin-top:10px; line-height:1.4; }
+  .settings .ok { color:#3ecf5e; } .settings .ko { color:#ff5c5c; }
+  button.ghost { background:none; border:1px solid var(--border); color:var(--muted); padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
   /* --- Vue graphe animée du pipeline --- */
   .graph { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:8px; margin-bottom:16px; }
   .graph svg { width:100%; height:auto; display:block; }
@@ -69,6 +78,7 @@
   <main class="main">
     <div class="topbar">
       <button class="primary" id="new-task">+ Nouvelle tâche</button>
+      <button class="ghost" id="open-settings">⚙ Paramètres</button>
       <span id="view-title" style="color:var(--muted);font-size:13px"></span>
     </div>
     <div class="content" id="content">
@@ -171,7 +181,16 @@ async function showRun(id, poll) {
   stopPolling();
   const render = (run) => {
     $("#view-title").textContent = run.task;
-    $("#content").innerHTML = graphSvg(run) + run.steps.map((s) => `
+    const artifacts = (run.artifacts ?? []).map((a) => {
+      const url = `/api/runs/${run.id}/artifacts/${encodeURIComponent(a.name)}`;
+      if (a.error) return `<div class="artifact error">${esc(a.label)} — échec : ${esc(a.error)}</div>`;
+      if (a.type === "audio")
+        return `<div class="artifact"><strong>${esc(a.label)}</strong><br><audio controls preload="none" src="${url}"></audio></div>`;
+      return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
+    }).join("");
+    $("#content").innerHTML = graphSvg(run)
+      + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
+      + run.steps.map((s) => `
       <div class="step">
         <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : ""}
@@ -188,6 +207,41 @@ async function showRun(id, poll) {
   await tick();
   if (poll) pollTimer = setInterval(tick, 2000);
 }
+
+$("#open-settings").onclick = async () => {
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = "Paramètres";
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>🔑 Clé API Mistral</h3>
+    <div id="settings-status" style="font-size:13px;color:var(--muted)">chargement…</div>
+    <input id="apikey-input" type="password" placeholder="mstrl-…" autocomplete="off" />
+    <button class="primary" id="save-key">Enregistrer la clé</button>
+    <button class="ghost" id="del-key">Supprimer la clé enregistrée</button>
+    <p class="warn">⚠ La clé enregistrée ici est stockée en clair dans <code>data/settings.json</code> (gitignoré, local uniquement). Préférez la variable <code>MISTRAL_API_KEY</code> (.env) pour la production. Ne partagez jamais votre clé. La clé n'est jamais renvoyée par l'API (statut masqué uniquement).</p>
+    <h3 style="margin-top:14px">🔊 Voix (TTS)</h3>
+    <div id="tts-status" style="font-size:13px;color:var(--muted)"></div>
+  </div>`;
+  const refresh = async () => {
+    const { data } = await api("/api/settings");
+    $("#settings-status").innerHTML = data.hasKey
+      ? `<span class="ok">✔ Clé configurée</span> (source : ${data.source === "env" ? "variable d'environnement" : "paramètres"})`
+      : `<span class="ko">✘ Aucune clé configurée</span> — les appels API échoueront (503)`;
+    $("#tts-status").textContent =
+      `Modèle TTS : ${data.ttsModel} · Voix : ${data.ttsVoice ?? (data.hasVoiceReference ? "clonage zero-shot depuis data/voice-ref.mp3" : "aucune")}`;
+  };
+  $("#save-key").onclick = async () => {
+    const v = $("#apikey-input").value.trim();
+    if (!v) return;
+    const { status, data } = await api("/api/settings", { method: "POST", body: { apiKey: v } });
+    if (status !== 200) { alert(data.error ?? "Erreur"); return; }
+    $("#apikey-input").value = "";
+    await refresh();
+  };
+  $("#del-key").onclick = async () => { await api("/api/settings", { method: "DELETE" }); await refresh(); };
+  await refresh();
+  refreshSidebar();
+};
 
 $("#new-task").onclick = async () => {
   const task = prompt("Décrivez la vidéo de cours à produire :");

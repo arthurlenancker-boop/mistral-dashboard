@@ -55,6 +55,27 @@ l'utilisateur :
 | DELETE | `/api/agents/:id` | Supprimer un agent |
 | POST | `/api/agents/:id/chat` | Chat direct avec un agent |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
+| GET | `/api/runs/:id/artifacts/:file` | Télécharger un livrable (MP3, JSON, MD) |
+
+## Livrables (artefacts)
+
+Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/` (gitignoré) et les affiche dans l'UI (section « 🎁 Livrables ») :
+
+- `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
+- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`, modèle `voxtral-small-latest` par défaut, surchargeable via `MISTRAL_TTS_MODEL` / `MISTRAL_TTS_VOICE`) à partir de la sortie de l'agent Voix
+- `montage.md` — plan de montage produit par l'agent Monteur
+
+Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
+
+## Paramètres (clé API dans le dashboard)
+
+Bouton **⚙ Paramètres** : saisir / supprimer la clé API directement dans l'UI. La clé est stockée dans `data/settings.json` (gitignoré) et n'est jamais renvoyée par l'API (statut masqué). Priorité : `MISTRAL_API_KEY` (env) > clé des paramètres. Sans aucune clé, le serveur démarre mais les appels renvoient `503` avec un message explicite.
+
+## Voix clonée (Voxtral)
+
+- Par défaut, la synthèse utilise le **clonage zero-shot** depuis `data/voice-ref.mp3` (champ `ref_audio`, base64) — fichier gitignoré, à remplacer par votre propre enregistrement (MP3/WAV, voix claire d'un seul locuteur).
+- Pour utiliser une voix prédéfinie ou une voix clonée enregistrée : `MISTRAL_TTS_VOICE=<voice_id>` (champ `voice_id`).
+- Modèle TTS par défaut : `voxtral-mini-tts-3-0` (surchargeable via `MISTRAL_TTS_MODEL`).
 | GET | `/api/runs` | Liste des exécutions |
 | GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
 
