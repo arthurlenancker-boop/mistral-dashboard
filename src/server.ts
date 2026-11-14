@@ -1,0 +1,262 @@
+import http from "node:http";
+import { readFileSync, existsSync } from "node:fs";
+import { join, extname } from "node:path";
+import { Mistral } from "@mistralai/mistralai";
+import { SEED_AGENTS, type Agent } from "./agents.js";
+import {
+  getAgents,
+  saveAgents,
+  getAgent,
+  getRuns,
+  getRun,
+  saveRun,
+  newRunId,
+  type Run,
+  type RunStep,
+} from "./store.js";
+import { complete, buildBrief } from "./mistral.js";
+
+const PORT = Number(process.env.PORT ?? 3000);
+const PUBLIC_DIR = join(process.cwd(), "public");
+
+if (!process.env.MISTRAL_API_KEY) {
+  console.error(
+    "Erreur : MISTRAL_API_KEY est manquante. Copiez .env.example en .env et renseignez votre clé API Mistral.",
+  );
+  process.exit(1);
+}
+
+const client = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+};
+
+function json(res: http.ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  res.end(payload);
+}
+
+async function readBody(req: http.IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString("utf-8");
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("JSON invalide dans le corps de la requête");
+  }
+}
+
+function serveStatic(
+  res: http.ServerResponse,
+  pathname: string,
+): boolean {
+  const file = pathname === "/" ? "index.html" : pathname.slice(1);
+  const path = join(PUBLIC_DIR, file);
+  if (!path.startsWith(PUBLIC_DIR) || !existsSync(path)) return false;
+  const ext = extname(path);
+  const mime = MIME[ext];
+  if (!mime) return false;
+  res.writeHead(200, { "Content-Type": mime });
+  res.end(readFileSync(path));
+  return true;
+}
+
+async function runPipeline(run: Run, task: string): Promise<void> {
+  const agents = getAgents()
+    .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
+    .sort((a, b) => a.order - b.order);
+  const previousOutputs: { agentName: string; output: string }[] = [];
+  for (const step of run.steps) {
+    const agent = agents.find((a) => a.id === step.agentId);
+    if (!agent) continue;
+    step.status = "running";
+    step.startedAt = new Date().toISOString();
+    run.updatedAt = step.startedAt;
+    saveRun(run);
+    try {
+      const output = await complete([
+        { role: "system", content: agent.systemPrompt },
+        { role: "user", content: buildBrief(task, previousOutputs) },
+      ]);
+      step.status = "done";
+      step.output = output;
+      previousOutputs.push({ agentName: agent.name, output });
+    } catch (err) {
+      step.status = "error";
+      step.error = err instanceof Error ? err.message : String(err);
+      run.status = "error";
+      step.endedAt = new Date().toISOString();
+      saveRun(run);
+      return;
+    }
+    step.endedAt = new Date().toISOString();
+    run.updatedAt = step.endedAt;
+    saveRun(run);
+  }
+  run.status = "done";
+  run.updatedAt = new Date().toISOString();
+  saveRun(run);
+}
+
+async function handleApi(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string,
+): Promise<boolean> {
+  const method = req.method ?? "GET";
+
+  if (pathname === "/api/agents" && method === "GET") {
+    json(res, 200, getAgents());
+    return true;
+  }
+
+  if (pathname === "/api/agents" && method === "POST") {
+    const body = await readBody(req);
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      json(res, 400, { error: "Le champ 'name' est requis" });
+      return true;
+    }
+    const agents = getAgents();
+    const agent: Agent = {
+      id: `agent_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      name: String(body.name).trim(),
+      role: String(body.role ?? "").trim(),
+      order: Number(body.order ?? agents.length + 1),
+      systemPrompt: String(body.systemPrompt ?? "Tu es un assistant utile."),
+    };
+    agents.push(agent);
+    saveAgents(agents);
+    json(res, 201, agent);
+    return true;
+  }
+
+  const agentMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (agentMatch) {
+    const id = decodeURIComponent(agentMatch[1]);
+    if (method === "DELETE") {
+      const agents = getAgents();
+      const next = agents.filter((a) => a.id !== id);
+      if (next.length === agents.length) {
+        json(res, 404, { error: `Agent '${id}' introuvable` });
+        return true;
+      }
+      saveAgents(next);
+      json(res, 200, { ok: true });
+      return true;
+    }
+    if (method === "POST" && pathname.endsWith("/chat")) {
+      json(res, 404, { error: "Chemin introuvable" });
+      return true;
+    }
+  }
+
+  const chatMatch = pathname.match(/^\/api\/agents\/([^/]+)\/chat$/);
+  if (chatMatch && method === "POST") {
+    const agent = getAgent(decodeURIComponent(chatMatch[1]));
+    if (!agent) {
+      json(res, 404, { error: "Agent introuvable" });
+      return true;
+    }
+    const body = await readBody(req);
+    if (typeof body.message !== "string" || !body.message.trim()) {
+      json(res, 400, { error: "Le champ 'message' est requis" });
+      return true;
+    }
+    try {
+      const answer = await client.chat.complete({
+        model: "mistral-large-4",
+        messages: [
+          { role: "system", content: agent.systemPrompt },
+          { role: "user", content: String(body.message) },
+        ],
+      });
+      json(res, 200, {
+        reply: answer.choices?.[0]?.message?.content ?? "",
+      });
+    } catch (err) {
+      json(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return true;
+  }
+
+  if (pathname === "/api/runs" && method === "GET") {
+    json(res, 200, getRuns());
+    return true;
+  }
+
+  if (pathname === "/api/runs" && method === "POST") {
+    const body = await readBody(req);
+    if (typeof body.task !== "string" || !body.task.trim()) {
+      json(res, 400, { error: "Le champ 'task' est requis" });
+      return true;
+    }
+    const task = String(body.task).trim();
+    const agents = getAgents()
+      .filter((a) => SEED_AGENTS.some((s) => s.id === a.id))
+      .sort((a, b) => a.order - b.order);
+    const now = new Date().toISOString();
+    const steps: RunStep[] = agents.map((a) => ({
+      agentId: a.id,
+      agentName: a.name,
+      status: "pending",
+    }));
+    const run: Run = {
+      id: newRunId(),
+      task,
+      status: "running",
+      createdAt: now,
+      updatedAt: now,
+      steps,
+    };
+    saveRun(run);
+    json(res, 201, run);
+    void runPipeline(run, task).catch((err) => {
+      run.status = "error";
+      run.updatedAt = new Date().toISOString();
+      saveRun(run);
+      console.error("Erreur pipeline:", err);
+    });
+    return true;
+  }
+
+  const runMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
+  if (runMatch && method === "GET") {
+    const run = getRun(decodeURIComponent(runMatch[1]));
+    if (!run) json(res, 404, { error: "Run introuvable" });
+    else json(res, 200, run);
+    return true;
+  }
+
+  return false;
+}
+
+const server = http.createServer(async (req, res) => {
+  const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+  try {
+    if (await handleApi(req, res, pathname)) return;
+    if (serveStatic(res, pathname)) return;
+    json(res, 404, { error: "Introuvable" });
+  } catch (err) {
+    json(res, 500, {
+      error: err instanceof Error ? err.message : "Erreur interne",
+    });
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`Serveur démarré sur http://localhost:${PORT}`);
+});
