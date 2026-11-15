@@ -32,7 +32,7 @@
 
 ---
 
-### Tâche 1 : Voix off longue durée (chunking TTS)
+### Task 1: Voix off longue durée (chunking TTS)
 
 **Fichiers :**
 - Modify: `src/tools.ts`
@@ -59,8 +59,7 @@ test("splitTtsChunks : long texte -> chunks <= TTS_CHUNK_MAX, phrases intactes, 
   assert.ok(chunks.length > 1);
   assert.ok(chunks.every((c) => c.length <= 1800));
   assert.equal(chunks.join(" "), text);
-  assert.ok(chunks.every((c) => !c.endsWith("fixe pour tester. ") || true)); // phrases jamais coupées au milieu :
-  assert.ok(chunks.every((c) => c.startsWith("Une phrase"))); // chaque chunk commence au début d'une phrase
+  assert.ok(chunks.every((c) => c.startsWith("Une phrase"))); // chaque chunk commence au début d'une phrase, phrases jamais coupées au milieu
 });
 
 test("splitTtsChunks : phrase unique > max -> decoupe brute", () => {
@@ -97,7 +96,7 @@ git commit -m "TTS longue durée : découpage par phrases (chunk <= 1800) + conc
 
 ---
 
-### Tâche 2 : Suppression de tâche + nettoyage des livrables
+### Task 2: Suppression de tâche + nettoyage des livrables
 
 **Fichiers :**
 - Modify: `src/store.ts`
@@ -159,7 +158,7 @@ git commit -m "Suppression de tâche : DELETE /api/runs/:id (409 si en cours) + 
 
 ---
 
-### Tâche 3 : CRUD agents (PUT + UI créer/modifier)
+### Task 3: CRUD agents (PUT + UI créer/modifier)
 
 **Fichiers :**
 - Modify: `src/server.ts`
@@ -211,7 +210,7 @@ git commit -m "CRUD agents : PUT /api/agents/:id + UI créer/modifier (nom, rôl
 
 ---
 
-### Tâche 4 : Itération vidéo — `POST /api/runs/:id/revise` + régénération des livrables
+### Task 4: Itération vidéo — `POST /api/runs/:id/revise` + régénération des livrables
 
 **Fichiers :**
 - Modify: `src/store.ts`
@@ -273,12 +272,13 @@ git commit -m "Itération vidéo : POST /api/runs/:id/revise (Monteur revisé + 
 
 ---
 
-### Tâche 5 : Chat contextualisé à une tâche
+### Task 5: Chat contextualisé à une tâche
 
 **Fichiers :**
 - Modify: `src/server.ts`
 - Modify: `public/index.html`
 - Modify: `tests/api.test.ts`
+- Modify: `README.md` (documenter `runId` dans la ligne du chat de la table API)
 
 **Interfaces :**
 - Consumes: `buildBrief` (mistral.ts) ; `getRun` (store).
@@ -306,12 +306,6 @@ Validation runId AVANT l'appel modèle ; construction du system message contextu
 
 ```bash
 npm test && npm run test:ui && npm run typecheck
-git add src/server.ts public/index.html tests/api.test.ts
+git add src/server.ts public/index.html tests/api.test.ts README.md
 git commit -m "Chat contextualisé : /api/agents/:id/chat accepte runId (tâche + sorties en contexte), bouton discuter par étape dans la vue tâche"
 ```
-
----
-
-### Adjonction finale : README + plan
-
-- [ ] Mettre à jour la table API du README (`DELETE /api/runs/:id`, `PUT /api/agents/:id`, `POST /api/runs/:id/revise`, `runId` du chat), le paragraphe « Livrables » (chunking TTS) et un paragraphe « Itérer sur une vidéo ». Commit avec la tâche 4/5 ou séparé selon résidu.
