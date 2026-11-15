@@ -58,6 +58,7 @@ try {
     assert.equal(await page.locator(".agent-item").count(), 6);
     assert.ok(await page.locator(".agent-role").first().isVisible());
     await page.locator(".how").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#onboard label").count(), 3);
   });
 
   await check("deep link #/agent ouvre le chat avec le bon agent", async () => {

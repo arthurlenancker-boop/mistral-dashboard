@@ -264,6 +264,13 @@
   .skeleton.w40 { width: 40%; } .skeleton.w65 { width: 65%; } .skeleton.w85 { width: 85%; }
   @keyframes shimmer { to { background-position: -200% 0; } }
 
+  .onboard { text-align: left; margin: 16px auto 0; max-width: 480px; background: var(--panel); border: 1px solid #eceade; border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+  .onboard-title { font-family: var(--font-display); font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+  .onboard label { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); padding: 3px 0; }
+  .onboard label.done { color: var(--text); }
+  .onboard input { accent-color: var(--accent); }
+  .next-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
   #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 99; }
   .toast {
     background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--ok);
@@ -318,7 +325,13 @@
           <li><b>2. Le pipeline tourne tout seul</b> : 5 agents se passent le travail en direct (graphe ci-dessus) — brief → storyboard → voix off → montage → contrôle qualité.</li>
           <li><b>3. Récupérez les livrables</b> en bas de la tâche : transcription JSON, voix off MP3, plan de montage et <b>vidéo MP4 rendue</b>.</li>
         </ol>
-        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement. La clé API se règle dans ⚙ Paramètres.</p>
+        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement.</p>
+        <div class="onboard" id="onboard">
+          <div class="onboard-title">Mise en route</div>
+          <label id="ob-key"><input type="checkbox" disabled /> Clé API configurée (⚙ Paramètres)</label>
+          <label id="ob-voice"><input type="checkbox" disabled /> Voix de référence importée (MP3)</label>
+          <label id="ob-run"><input type="checkbox" disabled /> Première tâche lancée</label>
+        </div>
       </div>
     </div>
   </main>
@@ -543,7 +556,13 @@ async function showRun(id, poll) {
         <textarea id="revise-input" rows="3" placeholder="Décrivez les corrections à apporter (ex. « raccourcis la scène 3 », « sous-titres plus grands ») — le Monteur retravaille le montage, le QA re-vérifie et les livrables sont régénérés." style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
         <div style="margin-top:10px"><button class="primary" id="send-revisions">Envoyer les corrections</button></div>
       </div>` : "";
-    $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
+    const next = run.status !== "running" ? `<div class="step"><h3>Et ensuite ?</h3>
+        <div class="next-actions">
+          <button class="ghost" id="copy-link">🔗 Copier le lien de cette tâche</button>
+          <button class="ghost" id="again">↻ Relancer une tâche similaire</button>
+          <button class="primary" id="go-new">+ Nouvelle tâche</button>
+        </div></div>` : "";
+    $("#content").innerHTML = graphSvg(run) + timelineHtml(run) + next
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
       + run.steps.map((s) => {
         const stepAgent = agents.find((a) => a.name === s.agentName);
@@ -578,7 +597,14 @@ async function showRun(id, poll) {
     const { data: run } = await api(`/api/runs/${id}`);
     if (!run.steps) return;
     render(run);
+    const cl = document.querySelector("#copy-link");
+    if (cl) cl.onclick = async () => { await navigator.clipboard.writeText(location.href); toast("Lien copié ✔"); };
+    const ag = document.querySelector("#again");
+    if (ag) ag.onclick = () => { document.querySelector("#new-task").click(); const t = document.querySelector("#task-input"); if (t) t.value = run.task; };
+    const gn = document.querySelector("#go-new");
+    if (gn) gn.onclick = () => document.querySelector("#new-task").click();
     refreshSidebar();
+    refreshOnboarding();
     if (run.status !== "running") stopPolling();
   };
   await tick();
@@ -848,7 +874,17 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
-refreshSidebar().then(() => { renderHeroGraph(); route(); });
+async function refreshOnboarding() {
+  const el = document.querySelector("#onboard");
+  if (!el) return;
+  const s = await (await fetch("/api/settings")).json();
+  const set = (id, ok) => { const l = document.querySelector(id); if (l) { l.querySelector("input").checked = ok; l.classList.toggle("done", ok); } };
+  set("#ob-key", !!s.hasKey);
+  set("#ob-voice", !!s.hasVoiceReference);
+  set("#ob-run", runs.length > 0);
+}
+
+refreshSidebar().then(() => { renderHeroGraph(); route(); refreshOnboarding(); });
 </script>
 </body>
 </html>
