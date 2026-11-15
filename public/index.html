@@ -147,6 +147,11 @@
     white-space: pre-wrap; font-size: 13px; line-height: 1.6;
     color: #3d3a33; font-family: var(--font-body);
   }
+  .step h3 .step-chat {
+    margin-left: auto; flex-shrink: 0; padding: 2px 10px;
+    font-size: 11.5px; font-family: var(--font-body); font-weight: 500;
+    white-space: nowrap;
+  }
 
   .chat { display: flex; flex-direction: column; height: 100%; }
   .chat-log { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 10px; }
@@ -376,12 +381,15 @@ function showHome() {
 
 function chatHistKey(id) { return `chat:${id}`; }
 
-function showChat(agent, onReply) {
+/** Id de tâche raccourci pour l'affichage (les id complets run_<ts>_<rand> sont longs). */
+function shortRunId(id) { return id.slice(-6); }
+
+function showChat(agent, onReply, contextRunId) {
   stopPolling();
   selectedRun = null; selectedAgent = agent.id;
   if (location.hash !== `#/agent/${agent.id}`) location.hash = `#/agent/${agent.id}`;
   document.title = `${agent.name} — Mistral Agents Dashboard`;
-  $("#view-title").textContent = `Chat avec ${agent.name}`;
+  $("#view-title").textContent = `Chat avec ${agent.name}${contextRunId ? ` — tâche ${shortRunId(contextRunId)}` : ""}`;
   $("#content").innerHTML = `<div class="chat" style="height:100%">
     <div class="chat-log" id="chat-log"></div>
     <form class="chat-form" id="chat-form">
@@ -401,7 +409,11 @@ function showChat(agent, onReply) {
     history.push({ role: "user", content: text });
     localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
     log.scrollTop = log.scrollHeight;
-    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { messages: history } });
+    // Le runId contextualise l'appel ; il vit uniquement dans l'état de ce chat
+    // courant : jamais écrit dans l'historique localStorage (chat:<id>).
+    const chatBody = { messages: history };
+    if (contextRunId) chatBody.runId = contextRunId;
+    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: chatBody });
     const reply = data.reply ?? "Erreur : " + (data.error ?? "");
     history.push({ role: "assistant", content: reply });
     localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
@@ -533,12 +545,15 @@ async function showRun(id, poll) {
       </div>` : "";
     $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
-      + run.steps.map((s) => `
+      + run.steps.map((s) => {
+        const stepAgent = agents.find((a) => a.name === s.agentName);
+        return `
       <div class="step">
-        <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
+        <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span>${stepAgent ? `<button class="ghost step-chat" data-chat-agent="${esc(stepAgent.id)}" data-run="${esc(run.id)}" title="Discuter avec ${esc(stepAgent.name)} à propos de cette tâche">💬 discuter</button>` : ""}</h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : s.status === "running" ? `<div class="skeleton w85"></div><div class="skeleton w65"></div><div class="skeleton w40"></div>` : ""}
         ${s.error ? `<pre style="color:var(--err)">${esc(s.error)}</pre>` : ""}
-      </div>`).join("")
+      </div>`;
+      }).join("")
       + reviseBox
       + (revisionsHtml ? `<div class="step" id="revisions-box"><h3>✏ Révisions</h3>${revisionsHtml}</div>` : "");
     // Envoi des corrections : la tâche repasse en cours, le polling reprend
@@ -781,6 +796,17 @@ $("#runs").onclick = async (e) => {
   }
   const id = e.target.closest("[data-run]")?.dataset.run;
   if (id) showRun(id, false);
+};
+
+// Boutons « discuter » des steps de la vue tâche : délégation sur #content car
+// render() réécrit l'innerHTML à chaque tick de polling — un bind direct sur les
+// boutons serait perdu au re-render suivant. Le run porté par le bouton
+// contextualise le chat à la tâche affichée.
+$("#content").onclick = (e) => {
+  const chatBtn = e.target.closest(".step-chat");
+  if (!chatBtn) return;
+  const agent = agents.find((a) => a.id === chatBtn.dataset.chatAgent);
+  if (agent) showChat(agent, undefined, chatBtn.dataset.run);
 };
 
 function renderHeroGraph() {

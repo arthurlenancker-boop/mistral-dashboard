@@ -112,6 +112,17 @@ function pipelineAgents(): Agent[] {
     .sort((a, b) => a.order - b.order);
 }
 
+/**
+ * Sorties réelles d'une tâche : les steps avec une sortie, mappées
+ * { agentName, output } — même forme que previousOutputs du pipeline.
+ */
+function outputsOf(run: Run): { agentName: string; output: string }[] {
+  const outputs: { agentName: string; output: string }[] = [];
+  for (const step of run.steps)
+    if (step.output) outputs.push({ agentName: step.agentName, output: step.output });
+  return outputs;
+}
+
 async function runPipeline(run: Run, task: string): Promise<void> {
   const agents = pipelineAgents();
   const previousOutputs: { agentName: string; output: string }[] = [];
@@ -427,6 +438,17 @@ async function handleApi(
       return true;
     }
     const body = await readBody(req);
+    // Contextualisation à une tâche (optionnelle) : runId fourni -> la tâche et
+    // les sorties des agents sont injectées dans le system message. Validé AVANT
+    // tout appel modèle : un runId inconnu n'entraîne aucun coût d'API.
+    let contextRun: Run | undefined;
+    if (body.runId !== undefined) {
+      contextRun = getRun(String(body.runId));
+      if (!contextRun) {
+        json(res, 404, { error: "Run introuvable" });
+        return true;
+      }
+    }
     const history =
       Array.isArray(body.messages) && body.messages.length
         ? body.messages.filter(
@@ -440,9 +462,12 @@ async function handleApi(
       return true;
     }
     try {
+      const systemMessage = contextRun
+        ? `${COMMON_CONTRACT}\n\n${agent.systemPrompt}\n\nCONTEXTE DE LA TÂCHE :\n${buildBrief(contextRun.task, outputsOf(contextRun))}`
+        : `${COMMON_CONTRACT}\n\n${agent.systemPrompt}`;
       const answer = await getClient().chat.complete({
         model: "mistral-large-4",
-        messages: [{ role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` }, ...history],
+        messages: [{ role: "system", content: systemMessage }, ...history],
       });
       json(res, 200, {
         reply: answer.choices?.[0]?.message?.content ?? "",

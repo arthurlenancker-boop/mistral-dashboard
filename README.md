@@ -60,7 +60,7 @@ l'utilisateur :
 | POST | `/api/agents` | Créer un agent |
 | PUT | `/api/agents/:id` | Modifier un agent (nom, rôle, ordre, prompt, pipeline) |
 | DELETE | `/api/agents/:id` | Supprimer un agent |
-| POST | `/api/agents/:id/chat` | Chat direct avec un agent |
+| POST | `/api/agents/:id/chat` | Chat direct avec un agent ; `runId` optionnel contextualise l'agent à une tâche (tâche + sorties des agents en contexte, run inconnu → `404`) |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
 | GET | `/api/runs` | Liste des exécutions |
 | GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |

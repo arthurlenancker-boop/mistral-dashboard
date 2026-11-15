@@ -124,6 +124,12 @@ test("chat sans message -> 400", async () => {
   assert.equal(r.status, 400);
 });
 
+test("chat avec runId inconnu -> 404", async () => {
+  const agents = (await (await fetch(BASE + "/api/agents")).json()) as any[];
+  const r = await fetch(`${BASE}/api/agents/${agents[0].id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [{ role: "user", content: "que penses-tu de la scène 3 ?" }], runId: "run_inconnu" }) });
+  assert.equal(r.status, 404);
+});
+
 test("artefact inconnu -> 404 et traversée de chemin bloquée", async () => {
   const r1 = await fetch(BASE + "/api/runs/abc/artifacts/x.mp3");
   assert.equal(r1.status, 404);
