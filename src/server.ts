@@ -105,6 +105,12 @@ function serveStatic(
   return true;
 }
 
+/** Ids des agents qui composent le pipeline d'origine (seeds inPipeline !== false).
+ * Ils sont identifiés PAR LEUR NOM dans les runs : livrables (outputOf("Voix")/
+ * "Monteur"), boucle QA et revise. Renommer ou retirer du pipeline l'un d'eux
+ * casserait ces lookups en silence -> refusé via PUT. */
+const PIPELINE_SEED_IDS = SEED_AGENTS.filter((s) => s.inPipeline !== false).map((s) => s.id);
+
 /** Agents du pipeline : agents seed, hors agents interactifs, triés par ordre. */
 function pipelineAgents(): Agent[] {
   return getAgents()
@@ -415,6 +421,14 @@ async function handleApi(
       const idx = agents.findIndex((a) => a.id === id);
       if (idx === -1) {
         json(res, 404, { error: `Agent '${id}' introuvable` });
+        return true;
+      }
+      // Les agents du pipeline sont identifiés par leur nom dans les runs
+      // (livrables Voix/Monteur, boucle QA, revise) : refuser nom/inPipeline.
+      if (PIPELINE_SEED_IDS.includes(id) && (body.name !== undefined || body.inPipeline !== undefined)) {
+        json(res, 400, {
+          error: "Les agents du pipeline se voient refuser le changement de nom ou de retrait du pipeline (ils sont identifiés par leur nom). Modifiez le rôle, l'ordre ou le system prompt.",
+        });
         return true;
       }
       const agent: Agent = { ...agents[idx] };

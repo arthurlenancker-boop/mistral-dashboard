@@ -424,7 +424,7 @@ function showChat(agent, onReply, contextRunId) {
   refreshSidebar();
 }
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML.replace(/"/g, "&quot;"); }
 
 /** Tronque un texte à n caractères (ellipse), pour un affichage lisible en liste. */
 function tr(s, n = 140) { s = s ?? ""; return s.length > n ? s.slice(0, n).trimEnd() + "…" : s; }

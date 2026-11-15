@@ -184,3 +184,28 @@ test("revise : 400 run en erreur sans sortie Monteur -> rien à réviser", async
   const d = (await j(r)) as any;
   assert.match(d.error, /terminée/i);
 });
+
+test("PUT sur agent du pipeline : name et inPipeline refusés (400), role modifiable", async () => {
+  const agents = (await (await fetch(BASE + "/api/agents")).json()) as any[];
+  const qa = agents.find((a: any) => a.id === "qa");
+  assert.ok(qa, "agent du pipeline 'qa' attendu");
+  const roleOrigine = qa.role;
+  assert.equal((await fetch(`${BASE}/api/agents/qa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Contrôle qualité" }) })).status, 400);
+  assert.equal((await fetch(`${BASE}/api/agents/qa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inPipeline: false }) })).status, 400);
+  const role = await fetch(`${BASE}/api/agents/qa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "QA personnalisée (test)" }) });
+  assert.equal(role.status, 200);
+  assert.equal(((await j(role)) as any).role, "QA personnalisée (test)");
+  // un agent créé par l'utilisateur reste librement renommable et pilotable
+  const cree = await fetch(BASE + "/api/agents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Agent temporaire renommable" }) });
+  assert.equal(cree.status, 201);
+  const idCree = ((await j(cree)) as any).id;
+  const renomme = await fetch(`${BASE}/api/agents/${idCree}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Agent renommé", inPipeline: true }) });
+  assert.equal(renomme.status, 200);
+  assert.equal(((await j(renomme)) as any).name, "Agent renommé");
+  // restaure le rôle d'origine : les seeds restent intacts en fin de test
+  const retour = await fetch(`${BASE}/api/agents/qa`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleOrigine }) });
+  assert.equal(retour.status, 200);
+  const apres = ((await (await fetch(BASE + "/api/agents")).json()) as any[]).find((a: any) => a.id === "qa");
+  assert.equal(apres.role, roleOrigine);
+  assert.equal(apres.name, "QA", "le nom d'un agent du pipeline ne doit jamais bouger");
+});

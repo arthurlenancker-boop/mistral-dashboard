@@ -58,7 +58,7 @@ l'utilisateur :
 |---|---|---|
 | GET | `/api/agents` | Liste des agents |
 | POST | `/api/agents` | Créer un agent |
-| PUT | `/api/agents/:id` | Modifier un agent (nom, rôle, ordre, prompt, pipeline) |
+| PUT | `/api/agents/:id` | Modifier un agent (nom, rôle, ordre, prompt, pipeline) — `name` et `inPipeline` refusés (`400`) pour les 5 agents du pipeline (identifiés par leur nom par les livrables et la boucle QA) ; libre pour les agents créés dans l'UI |
 | DELETE | `/api/agents/:id` | Supprimer un agent |
 | POST | `/api/agents/:id/chat` | Chat direct avec un agent ; `runId` optionnel contextualise l'agent à une tâche (tâche + sorties des agents en contexte, run inconnu → `404`) |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
@@ -137,7 +137,7 @@ Monteur échoue et la révision s'arrête en `error`.
 
 - `npm run dev` — serveur en mode watch
 - `npm run typecheck` — vérification TypeScript
-- `npm test` — tests d'API (node:test, 21 tests, isolés via `DATA_DIR`)
+- `npm test` — tests d'API (node:test, 23 tests, isolés via `DATA_DIR`)
 - `npm run test:ui` — test Playwright du rendu réel (SKIP propre sans navigateur headless ; `npx -y playwright@1.65.1 install chromium` pour l'installer en local)
 
 Les données (agents, tâches, artefacts) vivent dans `data/` — surchargeable via la

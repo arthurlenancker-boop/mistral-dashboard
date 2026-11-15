@@ -47,6 +47,7 @@ try {
   } catch (e) {
     console.log("SKIP UI: navigateur headless indisponible dans cet environnement (" + e.message.split("\n")[0] + "). Lancer `npx playwright install --with-deps chromium` ou exécuter en CI.");
     server?.kill("SIGTERM");
+    rmSync(workdir, { recursive: true, force: true }); // process.exit(0) court-circuite le finally
     process.exit(0);
   }
   const page = await browser.newPage();
