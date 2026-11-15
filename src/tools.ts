@@ -115,12 +115,19 @@ export function readArtifactFile(runId: string, name: string): Buffer | null {
   return readFileSync(file);
 }
 
-/** Supprime tous les fichiers d'artefacts d'une tâche (`<runId>__*`) ; no-op si le dossier des artefacts est absent. */
+/**
+ * Supprime tous les fichiers d'artefacts d'une tâche (`<runId>__*`) ; no-op si le
+ * dossier des artefacts est absent. Ne jette jamais : un artefact impossible à
+ * supprimer (handle ouvert, antivirus…) est consigné et contourné.
+ */
 export function deleteRunArtifacts(runId: string): void {
   if (!existsSync(ARTIFACTS_DIR)) return;
   for (const name of readdirSync(ARTIFACTS_DIR)) {
-    if (name.startsWith(`${runId}__`)) {
+    if (!name.startsWith(`${runId}__`)) continue;
+    try {
       unlinkSync(join(ARTIFACTS_DIR, name));
+    } catch (err) {
+      console.warn(`Artefact ${name} non supprimé : ${err instanceof Error ? err.message : err}`);
     }
   }
 }

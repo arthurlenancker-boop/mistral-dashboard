@@ -536,9 +536,14 @@ async function handleApi(
       json(res, 409, { error: "La tâche est en cours" });
       return true;
     }
-    deleteRun(id);
+    // Nettoyages AVANT la suppression du run : si l'un échoue, la tâche reste
+    // dans le store (pas de livrables orphelins) et la requête peut être rejouée.
     deleteRunArtifacts(id);
     rmSync(join(DATA_DIR, "render", id), { recursive: true, force: true });
+    if (!deleteRun(id)) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
     json(res, 200, { ok: true });
     return true;
   }

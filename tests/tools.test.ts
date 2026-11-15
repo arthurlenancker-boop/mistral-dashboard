@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitTtsChunks } from "../src/tools.js";
+import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { splitTtsChunks, deleteRunArtifacts, artifactFilePath } from "../src/tools.js";
 
 test("splitTtsChunks : texte court -> un seul chunk identique", () => {
   const chunks = splitTtsChunks("Bonjour. Ceci est court.");
@@ -25,4 +27,26 @@ test("splitTtsChunks : phrase unique > max -> decoupe brute", () => {
 
 test("splitTtsChunks : vide -> []", () => {
   assert.deepEqual(splitTtsChunks(""), []);
+});
+
+test("deleteRunArtifacts ne jette jamais : contourne un artefact non supprimable, épargne les autres runs", () => {
+  const runId = `run_test_${Math.random().toString(36).slice(2, 8)}`;
+  const otherId = `run_test_${Math.random().toString(36).slice(2, 8)}`;
+  const mine = artifactFilePath(runId, "voix-off.mp3");
+  const other = artifactFilePath(otherId, "voix-off.mp3");
+  // un dossier ne peut pas être unlink (EPERM) : simule un artefact bloqué (handle, antivirus…)
+  const stuck = join(dirname(mine), `${runId}__dossier`);
+  writeFileSync(mine, Buffer.from("x"));
+  writeFileSync(other, Buffer.from("x"));
+  mkdirSync(stuck);
+  try {
+    deleteRunArtifacts(runId);
+    assert.equal(existsSync(mine), false); // l'artefact supprimable est parti
+    assert.equal(existsSync(stuck), true); // le bloqué est contourné, pas fatal
+    assert.equal(existsSync(other), true); // les autres runs ne sont pas touchés
+  } finally {
+    rmSync(stuck, { recursive: true, force: true });
+    rmSync(mine, { force: true });
+    rmSync(other, { force: true });
+  }
 });
