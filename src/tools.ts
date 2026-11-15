@@ -128,22 +128,57 @@ export function artifactMime(name: string): string {
   return ARTIFACT_MIME[extname(name)] ?? "application/octet-stream";
 }
 
+export const TTS_CHUNK_MAX = 1800;
+
+/**
+ * Découpe un texte (déjà normalisé par synthesizeSpeech) en groupes de phrases
+ * <= TTS_CHUNK_MAX : chaque phrase reste intacte, une phrase seule plus longue
+ * que le max est coupée au caractère, un texte vide donne [].
+ */
+export function splitTtsChunks(text: string): string[] {
+  if (!text) return [];
+  const chunks: string[] = [];
+  let buffer = "";
+  for (const sentence of text.split(/(?<=[.!?…])\s+/).filter(Boolean)) {
+    if (sentence.length > TTS_CHUNK_MAX) {
+      if (buffer) {
+        chunks.push(buffer);
+        buffer = "";
+      }
+      for (let i = 0; i < sentence.length; i += TTS_CHUNK_MAX) {
+        chunks.push(sentence.slice(i, i + TTS_CHUNK_MAX));
+      }
+      continue;
+    }
+    const candidate = buffer ? `${buffer} ${sentence}` : sentence;
+    if (candidate.length > TTS_CHUNK_MAX) {
+      chunks.push(buffer);
+      buffer = sentence;
+    } else {
+      buffer = candidate;
+    }
+  }
+  if (buffer) chunks.push(buffer);
+  return chunks;
+}
+
 /**
  * Synthèse vocale via l'API Mistral (POST /v1/audio/speech).
  * - voix prédéfinie/clonée enregistrée : champ `voice_id` (MISTRAL_TTS_VOICE)
  * - sinon, clonage zero-shot depuis data/voice-ref.mp3 : champ `ref_audio` (base64)
+ * - texte long : un appel par chunk de phrases (splitTtsChunks), MP3 concaténés
  * Le SDK installé (1.15.x) n'expose pas encore audio.speech, d'où l'appel REST
  * direct — la clé reste côté serveur.
  */
 export async function synthesizeSpeech(text: string): Promise<Buffer> {
   const apiKey = effectiveApiKey();
   if (!apiKey) throw new Error("Aucune clé API Mistral configurée (voir Paramètres).");
-  const input = text.replace(/\s+/g, " ").trim().slice(0, 2000);
+  const input = text.replace(/\s+/g, " ").trim();
   if (!input) throw new Error("Texte vide pour la synthèse vocale");
+  const chunks = splitTtsChunks(input);
 
   const body: Record<string, unknown> = {
     model: TTS_MODEL,
-    input,
     response_format: "mp3",
   };
   if (TTS_VOICE) {
@@ -154,27 +189,36 @@ export async function synthesizeSpeech(text: string): Promise<Buffer> {
     body.ref_audio = readFileSync(ref).toString("base64");
   }
 
-  const res = await fetch("https://api.mistral.ai/v1/audio/speech", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    throw new Error(`API speech Mistral: ${res.status} ${await res.text()}`);
+  const buffers: Buffer[] = [];
+  for (const [index, chunk] of chunks.entries()) {
+    try {
+      const res = await fetch("https://api.mistral.ai/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...body, input: chunk }),
+      });
+      if (!res.ok) {
+        throw new Error(`API speech Mistral: ${res.status} ${await res.text()}`);
+      }
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const data = (await res.json()) as {
+          audio_data?: string;
+          audio?: string;
+          data?: { b64_audio?: string }[];
+        };
+        const b64 = data.audio_data ?? data.audio ?? data.data?.[0]?.b64_audio ?? "";
+        if (!b64) throw new Error("Réponse TTS sans contenu audio");
+        buffers.push(Buffer.from(b64, "base64"));
+      } else {
+        buffers.push(Buffer.from(await res.arrayBuffer()));
+      }
+    } catch (err) {
+      throw new Error(`Chunk ${index + 1}/${chunks.length} : ${err instanceof Error ? err.message : err}`);
+    }
   }
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const data = (await res.json()) as {
-      audio_data?: string;
-      audio?: string;
-      data?: { b64_audio?: string }[];
-    };
-    const b64 = data.audio_data ?? data.audio ?? data.data?.[0]?.b64_audio ?? "";
-    if (!b64) throw new Error("Réponse TTS sans contenu audio");
-    return Buffer.from(b64, "base64");
-  }
-  return Buffer.from(await res.arrayBuffer());
+  return Buffer.concat(buffers);
 }
