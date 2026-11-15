@@ -102,6 +102,19 @@ try {
     assert.equal(await page.locator(".run-item").count(), 1);
   });
 
+  await check("revise invisible sur un run en erreur (ni section Itérer, ni Révisions)", async () => {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    // le run « Vidéo de test UI » (créé plus haut, clé fictive) est en erreur : statut error, pas de sortie Monteur
+    await page.locator('.run-item:has-text("Vidéo de test UI") .badge.error').waitFor({ state: "visible", timeout: 15000 });
+    await page.locator('.run-item:has-text("Vidéo de test UI")').click();
+    await page.locator(".timeline svg").waitFor({ state: "visible", timeout: 10000 });
+    // vue run rendue (timeline + étapes) : un run non terminé n'affiche ni le formulaire ni l'historique
+    assert.equal(await page.locator("#revise-box").count(), 0);
+    assert.equal(await page.locator("#revisions-box").count(), 0);
+    assert.equal(await page.locator("#revise-input").count(), 0);
+    assert.equal(await page.locator("#send-revisions").count(), 0);
+  });
+
   await check("création agent : « + Nouvel agent » -> formulaire -> ligne visible dans la sidebar", async () => {
     await page.goto(BASE, { waitUntil: "networkidle" });
     await page.click("#new-agent");

@@ -37,6 +37,13 @@ export interface Artifact {
   error?: string;
 }
 
+export interface RunRevision {
+  corrections: string;
+  requestedAt: string;
+  status: "running" | "done" | "error";
+  error?: string;
+}
+
 export interface Run {
   id: string;
   task: string;
@@ -46,6 +53,7 @@ export interface Run {
   steps: RunStep[];
   artifacts?: Artifact[];
   course?: string;
+  revisions?: RunRevision[];
 }
 
 export interface ChatMessage {

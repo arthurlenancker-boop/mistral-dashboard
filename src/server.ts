@@ -16,6 +16,7 @@ import {
   DATA_DIR,
   type Run,
   type RunStep,
+  type RunRevision,
   type Artifact,
 } from "./store.js";
 import {
@@ -196,13 +197,72 @@ async function runPipeline(run: Run, task: string): Promise<void> {
 }
 
 /**
+ * Itération demandée par l'utilisateur (POST /api/runs/:id/revise) : le Monteur
+ * révise sa sortie à partir des corrections, le QA re-vérifie une fois, puis
+ * les livrables sont régénérés. Même mécanique que la boucle de réflexion du
+ * QA dans runPipeline, déclenchée manuellement et en une seule passe.
+ */
+async function reviseRun(run: Run, task: string, revision: RunRevision, iteration: number): Promise<void> {
+  const agents = pipelineAgents();
+  const monteurStep = run.steps.find((st) => st.agentName === "Monteur");
+  const qaStep = run.steps.find((st) => st.agentName === "QA");
+  const monteurAgent = agents.find((a) => a.id === monteurStep?.agentId);
+  const qaAgent = agents.find((a) => a.id === qaStep?.agentId);
+  if (!monteurStep || !monteurAgent) {
+    throw new Error("L'agent Monteur est introuvable ou hors pipeline — impossible de réviser");
+  }
+  const previousOutputs: { agentName: string; output: string }[] = [];
+  for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+  // Le Monteur révise à partir des corrections de l'utilisateur
+  monteurStep.status = "running";
+  monteurStep.startedAt = new Date().toISOString();
+  run.updatedAt = monteurStep.startedAt;
+  saveRun(run);
+  const revised = await complete([
+    { role: "system", content: `${COMMON_CONTRACT}\n\n${monteurAgent.systemPrompt}` },
+    { role: "user", content: `${buildBrief(task, previousOutputs)}\n\nCORRECTIONS DEMANDÉES PAR L'UTILISATEUR (itération ${iteration}) :\n${revision.corrections}\nApplique UNIQUEMENT ces corrections ciblées, ne réécris pas tout.` },
+  ]);
+  monteurStep.status = "done";
+  monteurStep.output = revised;
+  monteurStep.endedAt = new Date().toISOString();
+  run.updatedAt = monteurStep.endedAt;
+  previousOutputs.length = 0;
+  for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+  // Le QA re-vérifie une fois (si l'agent QA existe)
+  if (qaStep && qaAgent) {
+    qaStep.status = "running";
+    saveRun(run);
+    const qaOut = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${qaAgent.systemPrompt}` },
+      { role: "user", content: buildBrief(task, previousOutputs) },
+    ]);
+    qaStep.status = "done";
+    qaStep.output = qaOut;
+    qaStep.endedAt = new Date().toISOString();
+    run.updatedAt = qaStep.endedAt;
+    saveRun(run);
+  }
+  run.status = "done";
+  run.updatedAt = new Date().toISOString();
+  revision.status = "done";
+  saveRun(run);
+  try {
+    await produceArtifacts(run);
+  } catch (err) {
+    console.error("Erreur production d'artefacts:", err);
+  }
+}
+
+/**
  * Produit les livrables d'une tâche terminée : transcription JSON complète,
  * voix off MP3 (API speech Mistral) à partir de la sortie de l'agent Voix,
  * et plan de montage Markdown à partir de la sortie de l'agent Monteur.
- * Un échec d'artefact n'échoue pas la tâche.
+ * La liste est recréée à plat à chaque production (les livrables régénérés
+ * remplacent les précédents), en préservant l'artefact du cours joint au
+ * lancement de la tâche. Un échec d'artefact n'échoue pas la tâche.
  */
 async function produceArtifacts(run: Run): Promise<void> {
-  const artifacts: Artifact[] = [...(run.artifacts ?? [])];
+  const artifacts: Artifact[] = (run.artifacts ?? []).filter((a) => a.label.startsWith("Cours source"));
   const outputOf = (name: string) =>
     run.steps.find((s) => s.agentName === name && s.output)?.output ?? "";
 
@@ -514,6 +574,45 @@ async function handleApi(
       run.updatedAt = new Date().toISOString();
       saveRun(run);
       console.error("Erreur pipeline:", err);
+    });
+    return true;
+  }
+
+  // Route d'itération : déclarée avant le runMatch ($-ancré, pas de collision,
+  // mais l'ordre rend la priorité explicite).
+  const reviseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/revise$/);
+  if (reviseMatch && method === "POST") {
+    const id = decodeURIComponent(reviseMatch[1]);
+    const run = getRun(id);
+    if (!run) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    const body = await readBody(req);
+    const corrections = typeof body.corrections === "string" ? body.corrections.trim() : "";
+    if (!corrections) {
+      json(res, 400, { error: "Le champ 'corrections' est requis" });
+      return true;
+    }
+    if (run.status !== "done" || !run.steps.some((st) => st.agentName === "Monteur" && st.output)) {
+      json(res, 400, { error: "Rien à réviser : la tâche doit être terminée" });
+      return true;
+    }
+    const now = new Date().toISOString();
+    const iteration = (run.revisions?.length ?? 0) + 1;
+    const revision: RunRevision = { corrections, requestedAt: now, status: "running" };
+    run.revisions = [...(run.revisions ?? []), revision];
+    run.status = "running";
+    run.updatedAt = now;
+    saveRun(run);
+    json(res, 200, run);
+    void reviseRun(run, run.task, revision, iteration).catch((err) => {
+      run.status = "error";
+      run.updatedAt = new Date().toISOString();
+      revision.status = "error";
+      revision.error = err instanceof Error ? err.message : String(err);
+      saveRun(run);
+      console.error("Erreur révision:", err);
     });
     return true;
   }

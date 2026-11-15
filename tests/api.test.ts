@@ -152,3 +152,29 @@ test("PUT /api/agents/:id met à jour partiellement, 404 inconnu, 400 name vide"
   assert.equal((await fetch(BASE + "/api/agents/agent_inconnu", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "x" }) })).status, 404);
   assert.equal((await fetch(`${BASE}/api/agents/${agents[1].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "  " }) })).status, 400);
 });
+
+// Fixture des tests revise : run créé avec la clé fictive, attendu jusqu'en
+// erreur -> statut "error", aucune sortie Monteur : il n'y a rien à réviser.
+let errRun: any;
+test("revise : 404 run inconnu", async () => {
+  const r0 = await fetch(BASE + "/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task: "tâche revise" }) });
+  assert.equal(r0.status, 201);
+  errRun = (await j(r0)) as any;
+  for (let i = 0; i < 40; i++) { const d = await (await fetch(`${BASE}/api/runs/${errRun.id}`)).json() as any; if (d.status === "error") break; await new Promise((x) => setTimeout(x, 250)); }
+  const fin = (await (await fetch(`${BASE}/api/runs/${errRun.id}`)).json()) as any;
+  assert.equal(fin.status, "error", "la fixture doit être en erreur (clé fictive) avant de tester revise");
+  const r = await fetch(BASE + "/api/runs/run_inconnu/revise", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrections: "x" }) });
+  assert.equal(r.status, 404);
+});
+
+test("revise : 400 sans corrections", async () => {
+  const r = await fetch(`${BASE}/api/runs/${errRun.id}/revise`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+  assert.equal(r.status, 400);
+});
+
+test("revise : 400 run en erreur sans sortie Monteur -> rien à réviser", async () => {
+  const r = await fetch(`${BASE}/api/runs/${errRun.id}/revise`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrections: "raccourcis la scène 3" }) });
+  assert.equal(r.status, 400);
+  const d = (await j(r)) as any;
+  assert.match(d.error, /terminée/i);
+});

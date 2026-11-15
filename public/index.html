@@ -414,6 +414,9 @@ function showChat(agent, onReply) {
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
+/** Tronque un texte à n caractères (ellipse), pour un affichage lisible en liste. */
+function tr(s, n = 140) { s = s ?? ""; return s.length > n ? s.slice(0, n).trimEnd() + "…" : s; }
+
 function graphSvg(run) {
   const W = 1000, H = 172, y = 74, steps = run.steps ?? [];
   const n = steps.length;
@@ -514,6 +517,20 @@ async function showRun(id, poll) {
         return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
       return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
     }).join("");
+    const revisionsHtml = (run.revisions ?? []).map((r) => `
+      <div class="artifact">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+          <span title="${esc(r.corrections)}">${esc(tr(r.corrections))}</span>
+          <span class="badge ${r.status}" style="flex-shrink:0">${r.status}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${esc(new Date(r.requestedAt).toLocaleDateString())}${r.error ? ` — <span style="color:var(--err)">${esc(r.error)}</span>` : ""}</div>
+      </div>`).join("");
+    const reviseBox = run.status === "done" ? `
+      <div class="step" id="revise-box">
+        <h3>✏ Itérer sur la vidéo</h3>
+        <textarea id="revise-input" rows="3" placeholder="Décrivez les corrections à apporter (ex. « raccourcis la scène 3 », « sous-titres plus grands ») — le Monteur retravaille le montage, le QA re-vérifie et les livrables sont régénérés." style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
+        <div style="margin-top:10px"><button class="primary" id="send-revisions">Envoyer les corrections</button></div>
+      </div>` : "";
     $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
       + run.steps.map((s) => `
@@ -521,7 +538,26 @@ async function showRun(id, poll) {
         <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : s.status === "running" ? `<div class="skeleton w85"></div><div class="skeleton w65"></div><div class="skeleton w40"></div>` : ""}
         ${s.error ? `<pre style="color:var(--err)">${esc(s.error)}</pre>` : ""}
-      </div>`).join("");
+      </div>`).join("")
+      + reviseBox
+      + (revisionsHtml ? `<div class="step" id="revisions-box"><h3>✏ Révisions</h3>${revisionsHtml}</div>` : "");
+    // Envoi des corrections : la tâche repasse en cours, le polling reprend
+    if (run.status === "done") {
+      $("#send-revisions").onclick = async () => {
+        const corrections = $("#revise-input").value.trim();
+        if (!corrections) { alert("Décrivez d'abord les corrections à appliquer"); return; }
+        const btn = $("#send-revisions");
+        btn.classList.add("loading");
+        const { status, data } = await api(`/api/runs/${run.id}/revise`, { method: "POST", body: { corrections } });
+        if (status !== 200) {
+          btn.classList.remove("loading");
+          toast(data.error ?? "Envoi impossible", "error");
+          return;
+        }
+        toast("Révision lancée — le Monteur retravaille la vidéo");
+        showRun(run.id, true);
+      };
+    }
   };
   const tick = async () => {
     const { data: run } = await api(`/api/runs/${id}`);
