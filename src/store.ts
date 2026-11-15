@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { SEED_AGENTS, type Agent } from "./agents.js";
 
-const DATA_DIR = join(process.cwd(), "data");
+/** Répertoire de données : surchargeable via DATA_DIR (utilisée par les tests pour s'isoler). */
+export const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(process.cwd(), "data");
 const AGENTS_FILE = join(DATA_DIR, "agents.json");
 const RUNS_FILE = join(DATA_DIR, "runs.json");
 const SETTINGS_FILE = join(DATA_DIR, "settings.json");

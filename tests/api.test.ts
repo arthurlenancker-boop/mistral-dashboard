@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,13 +23,13 @@ async function waitUp(): Promise<void> {
 
 before(async () => {
   workdir = mkdtempSync(join(tmpdir(), "mistral-dashboard-test-"));
-  server = spawn("npx", ["tsx", "src/server.ts"], {
+  // node --import tsx : évite npx, inexistant en tant qu'exécutable sous Windows
+  // (npx y est un .cmd) ; DATA_DIR isole toute écriture dans le workdir temporaire.
+  server = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: join(process.cwd()),
     env: { ...process.env, PORT: String(PORT), MISTRAL_API_KEY: "mstrl-fictive-test", DATA_DIR: workdir },
     stdio: "ignore",
   });
-  // le serveur utilise process.cwd()/data ; on lance depuis une copie propre via env DATA_DIR non supporté,
-  // donc on isole en lançant avec cwd = workdir et un lien symbolique minimal
   await waitUp();
 });
 
@@ -68,6 +68,8 @@ test("POST /api/runs crée une tâche avec 5 étapes dans l'ordre du pipeline", 
   const run = (await j(r)) as any;
   assert.deepEqual(run.steps.map((s: any) => s.agentName), ["Chef de projet", "Scénariste", "Voix", "Monteur", "QA"]);
   assert.equal(run.status, "running");
+  // isolation DATA_DIR : le run est bien persisté dans le workdir, pas dans data/ du dépôt
+  assert.ok(existsSync(join(workdir, "runs.json")), "runs.json doit être écrit dans DATA_DIR");
   // avec une clé fictive, le pipeline doit passer en erreur proprement
   for (let i = 0; i < 40; i++) {
     const d = await (await fetch(`${BASE}/api/runs/${run.id}`)).json() as any;

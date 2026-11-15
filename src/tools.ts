@@ -1,9 +1,8 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
-import type { Artifact } from "./store.js";
+import { DATA_DIR, type Artifact } from "./store.js";
 import { effectiveApiKey } from "./mistral.js";
 
-const DATA_DIR = join(process.cwd(), "data");
 const ARTIFACTS_DIR = join(DATA_DIR, "artifacts");
 mkdirSync(ARTIFACTS_DIR, { recursive: true });
 

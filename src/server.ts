@@ -12,6 +12,7 @@ import {
   newRunId,
   getSettings,
   saveSettings,
+  DATA_DIR,
   type Run,
   type RunStep,
   type Artifact,
@@ -262,7 +263,7 @@ async function produceArtifacts(run: Run): Promise<void> {
     const code = extractRemotionCode(montage);
     if (code) {
       try {
-        const workDir = join(process.cwd(), "data", "render", run.id);
+        const workDir = join(DATA_DIR, "render", run.id);
         const outFile = join(workDir, "video.mp4");
         mkdirSync(workDir, { recursive: true });
         renderVideoToFile(workDir, code, outFile);

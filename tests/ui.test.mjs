@@ -2,15 +2,20 @@
 // Utilise le chrome-headless-shell téléchargé par Remotion si présent, sinon le chromium Playwright.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
 const PORT = 3298;
 const BASE = `http://localhost:${PORT}`;
+const workdir = mkdtempSync(join(tmpdir(), "mistral-dashboard-ui-"));
 
 function chromePath() {
-  const p = join(process.cwd(), "data/render/template/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell");
+  // Chrome Headless Shell de Remotion s'il a déjà été téléchargé ; layout et binaire selon l'OS.
+  const p = process.platform === "win32"
+    ? join(process.cwd(), "data/render/template/node_modules/.remotion/chrome-headless-shell/win64/chrome-headless-shell-win64/chrome-headless-shell.exe")
+    : join(process.cwd(), "data/render/template/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell");
   return existsSync(p) ? p : undefined;
 }
 
@@ -30,7 +35,12 @@ async function check(name, fn) {
 
 let server, browser;
 try {
-  server = spawn("npx", ["tsx", "src/server.ts"], { env: { ...process.env, PORT: String(PORT), MISTRAL_API_KEY: "mstrl-fictive-test" }, stdio: "ignore" });
+  // node --import tsx : évite npx, inexistant en tant qu'exécutable sous Windows (npx y est un .cmd).
+  // DATA_DIR isole toute écriture (runs.json, settings.json…) dans le workdir temporaire.
+  server = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
+    env: { ...process.env, PORT: String(PORT), MISTRAL_API_KEY: "mstrl-fictive-test", DATA_DIR: workdir },
+    stdio: "ignore",
+  });
   await waitUp();
   try {
     browser = await chromium.launch({ executablePath: chromePath(), args: ["--no-sandbox"] });
@@ -75,6 +85,7 @@ try {
 } finally {
   await browser?.close();
   server?.kill("SIGTERM");
+  rmSync(workdir, { recursive: true, force: true });
 }
 
 const failed = results.filter((x) => x === 0).length;

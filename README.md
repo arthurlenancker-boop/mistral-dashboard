@@ -70,7 +70,7 @@ Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/
 - `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
 - `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`) à partir de la sortie de l'agent Voix
 - `montage.md` — plan de montage produit par l'agent Monteur
-- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps ; la **durée est calculée depuis le contenu** via le `calculateMetadata` exporté par l'agent — somme des durées audio réelles, jamais une valeur fixe ; `RENDER_DURATION_FRAMES` n'est qu'un fallback, `RENDER_VIDEO=0` désactive le rendu). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2`.
+- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps ; la **durée est calculée depuis le contenu** via le `calculateMetadata` exporté par l'agent — somme des durées audio réelles, jamais une valeur fixe ; `RENDER_DURATION_FRAMES` n'est qu'un fallback, `RENDER_VIDEO=0` désactive le rendu). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système Linux** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2` ; sous Windows, aucun prérequis : le rendu et les commandes npm/npx fonctionnent nativement (`node_modules` du template lié par junction).
 
 Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
 
@@ -110,3 +110,8 @@ Le texte extrait est enregistré dans `data/courses/`, injecté dans le brief in
 
 - `npm run dev` — serveur en mode watch
 - `npm run typecheck` — vérification TypeScript
+- `npm test` — tests d'API (node:test, 11 tests, isolés via `DATA_DIR`)
+- `npm run test:ui` — test Playwright du rendu réel (SKIP propre sans navigateur headless ; `npx -y playwright@1.65.1 install chromium` pour l'installer en local)
+
+Les données (agents, tâches, artefacts) vivent dans `data/` — surchargeable via la
+variable `DATA_DIR`, utilisée par les tests pour ne jamais écrire dans `data/`.
