@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, cpSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
 import { SEED_AGENTS, COMMON_CONTRACT, type Agent } from "./agents.js";
 import {
@@ -9,11 +9,14 @@ import {
   getRuns,
   getRun,
   saveRun,
+  deleteRun,
   newRunId,
   getSettings,
   saveSettings,
+  DATA_DIR,
   type Run,
   type RunStep,
+  type RunRevision,
   type Artifact,
 } from "./store.js";
 import {
@@ -27,6 +30,7 @@ import {
 import {
   saveArtifactFile,
   readArtifactFile,
+  deleteRunArtifacts,
   artifactMime,
   artifactFilePath,
   synthesizeSpeech,
@@ -101,11 +105,28 @@ function serveStatic(
   return true;
 }
 
+/** Ids des agents qui composent le pipeline d'origine (seeds inPipeline !== false).
+ * Ils sont identifiés PAR LEUR NOM dans les runs : livrables (outputOf("Voix")/
+ * "Monteur"), boucle QA et revise. Renommer ou retirer du pipeline l'un d'eux
+ * casserait ces lookups en silence -> refusé via PUT. */
+const PIPELINE_SEED_IDS = SEED_AGENTS.filter((s) => s.inPipeline !== false).map((s) => s.id);
+
 /** Agents du pipeline : agents seed, hors agents interactifs, triés par ordre. */
 function pipelineAgents(): Agent[] {
   return getAgents()
     .filter((a) => SEED_AGENTS.some((s) => s.id === a.id) && a.inPipeline !== false)
     .sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Sorties réelles d'une tâche : les steps avec une sortie, mappées
+ * { agentName, output } — même forme que previousOutputs du pipeline.
+ */
+function outputsOf(run: Run): { agentName: string; output: string }[] {
+  const outputs: { agentName: string; output: string }[] = [];
+  for (const step of run.steps)
+    if (step.output) outputs.push({ agentName: step.agentName, output: step.output });
+  return outputs;
 }
 
 async function runPipeline(run: Run, task: string): Promise<void> {
@@ -193,13 +214,72 @@ async function runPipeline(run: Run, task: string): Promise<void> {
 }
 
 /**
+ * Itération demandée par l'utilisateur (POST /api/runs/:id/revise) : le Monteur
+ * révise sa sortie à partir des corrections, le QA re-vérifie une fois, puis
+ * les livrables sont régénérés. Même mécanique que la boucle de réflexion du
+ * QA dans runPipeline, déclenchée manuellement et en une seule passe.
+ */
+async function reviseRun(run: Run, task: string, revision: RunRevision, iteration: number): Promise<void> {
+  const agents = pipelineAgents();
+  const monteurStep = run.steps.find((st) => st.agentName === "Monteur");
+  const qaStep = run.steps.find((st) => st.agentName === "QA");
+  const monteurAgent = agents.find((a) => a.id === monteurStep?.agentId);
+  const qaAgent = agents.find((a) => a.id === qaStep?.agentId);
+  if (!monteurStep || !monteurAgent) {
+    throw new Error("L'agent Monteur est introuvable ou hors pipeline — impossible de réviser");
+  }
+  const previousOutputs: { agentName: string; output: string }[] = [];
+  for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+  // Le Monteur révise à partir des corrections de l'utilisateur
+  monteurStep.status = "running";
+  monteurStep.startedAt = new Date().toISOString();
+  run.updatedAt = monteurStep.startedAt;
+  saveRun(run);
+  const revised = await complete([
+    { role: "system", content: `${COMMON_CONTRACT}\n\n${monteurAgent.systemPrompt}` },
+    { role: "user", content: `${buildBrief(task, previousOutputs)}\n\nCORRECTIONS DEMANDÉES PAR L'UTILISATEUR (itération ${iteration}) :\n${revision.corrections}\nApplique UNIQUEMENT ces corrections ciblées, ne réécris pas tout.` },
+  ]);
+  monteurStep.status = "done";
+  monteurStep.output = revised;
+  monteurStep.endedAt = new Date().toISOString();
+  run.updatedAt = monteurStep.endedAt;
+  previousOutputs.length = 0;
+  for (const st of run.steps) if (st.output) previousOutputs.push({ agentName: st.agentName, output: st.output });
+  // Le QA re-vérifie une fois (si l'agent QA existe)
+  if (qaStep && qaAgent) {
+    qaStep.status = "running";
+    saveRun(run);
+    const qaOut = await complete([
+      { role: "system", content: `${COMMON_CONTRACT}\n\n${qaAgent.systemPrompt}` },
+      { role: "user", content: buildBrief(task, previousOutputs) },
+    ]);
+    qaStep.status = "done";
+    qaStep.output = qaOut;
+    qaStep.endedAt = new Date().toISOString();
+    run.updatedAt = qaStep.endedAt;
+    saveRun(run);
+  }
+  run.status = "done";
+  run.updatedAt = new Date().toISOString();
+  revision.status = "done";
+  saveRun(run);
+  try {
+    await produceArtifacts(run);
+  } catch (err) {
+    console.error("Erreur production d'artefacts:", err);
+  }
+}
+
+/**
  * Produit les livrables d'une tâche terminée : transcription JSON complète,
  * voix off MP3 (API speech Mistral) à partir de la sortie de l'agent Voix,
  * et plan de montage Markdown à partir de la sortie de l'agent Monteur.
- * Un échec d'artefact n'échoue pas la tâche.
+ * La liste est recréée à plat à chaque production (les livrables régénérés
+ * remplacent les précédents), en préservant l'artefact du cours joint au
+ * lancement de la tâche. Un échec d'artefact n'échoue pas la tâche.
  */
 async function produceArtifacts(run: Run): Promise<void> {
-  const artifacts: Artifact[] = [...(run.artifacts ?? [])];
+  const artifacts: Artifact[] = (run.artifacts ?? []).filter((a) => a.label.startsWith("Cours source"));
   const outputOf = (name: string) =>
     run.steps.find((s) => s.agentName === name && s.output)?.output ?? "";
 
@@ -262,7 +342,7 @@ async function produceArtifacts(run: Run): Promise<void> {
     const code = extractRemotionCode(montage);
     if (code) {
       try {
-        const workDir = join(process.cwd(), "data", "render", run.id);
+        const workDir = join(DATA_DIR, "render", run.id);
         const outFile = join(workDir, "video.mp4");
         mkdirSync(workDir, { recursive: true });
         renderVideoToFile(workDir, code, outFile);
@@ -331,6 +411,37 @@ async function handleApi(
       json(res, 200, { ok: true });
       return true;
     }
+    if (method === "PUT") {
+      const body = await readBody(req);
+      if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
+        json(res, 400, { error: "Le champ 'name' doit être une chaîne non vide" });
+        return true;
+      }
+      const agents = getAgents();
+      const idx = agents.findIndex((a) => a.id === id);
+      if (idx === -1) {
+        json(res, 404, { error: `Agent '${id}' introuvable` });
+        return true;
+      }
+      // Les agents du pipeline sont identifiés par leur nom dans les runs
+      // (livrables Voix/Monteur, boucle QA, revise) : refuser nom/inPipeline.
+      if (PIPELINE_SEED_IDS.includes(id) && (body.name !== undefined || body.inPipeline !== undefined)) {
+        json(res, 400, {
+          error: "Les agents du pipeline se voient refuser le changement de nom ou de retrait du pipeline (ils sont identifiés par leur nom). Modifiez le rôle, l'ordre ou le system prompt.",
+        });
+        return true;
+      }
+      const agent: Agent = { ...agents[idx] };
+      if (body.name !== undefined) agent.name = String(body.name).trim();
+      if (body.role !== undefined) agent.role = String(body.role).trim();
+      if (body.order !== undefined) agent.order = Number(body.order);
+      if (body.systemPrompt !== undefined) agent.systemPrompt = String(body.systemPrompt);
+      if (body.inPipeline !== undefined) agent.inPipeline = Boolean(body.inPipeline);
+      agents[idx] = agent;
+      saveAgents(agents);
+      json(res, 200, agent);
+      return true;
+    }
   }
 
   const chatMatch = pathname.match(/^\/api\/agents\/([^/]+)\/chat$/);
@@ -341,6 +452,17 @@ async function handleApi(
       return true;
     }
     const body = await readBody(req);
+    // Contextualisation à une tâche (optionnelle) : runId fourni -> la tâche et
+    // les sorties des agents sont injectées dans le system message. Validé AVANT
+    // tout appel modèle : un runId inconnu n'entraîne aucun coût d'API.
+    let contextRun: Run | undefined;
+    if (body.runId !== undefined) {
+      contextRun = getRun(String(body.runId));
+      if (!contextRun) {
+        json(res, 404, { error: "Run introuvable" });
+        return true;
+      }
+    }
     const history =
       Array.isArray(body.messages) && body.messages.length
         ? body.messages.filter(
@@ -354,9 +476,12 @@ async function handleApi(
       return true;
     }
     try {
+      const systemMessage = contextRun
+        ? `${COMMON_CONTRACT}\n\n${agent.systemPrompt}\n\nCONTEXTE DE LA TÂCHE :\n${buildBrief(contextRun.task, outputsOf(contextRun))}`
+        : `${COMMON_CONTRACT}\n\n${agent.systemPrompt}`;
       const answer = await getClient().chat.complete({
         model: "mistral-large-4",
-        messages: [{ role: "system", content: `${COMMON_CONTRACT}\n\n${agent.systemPrompt}` }, ...history],
+        messages: [{ role: "system", content: systemMessage }, ...history],
       });
       json(res, 200, {
         reply: answer.choices?.[0]?.message?.content ?? "",
@@ -492,6 +617,45 @@ async function handleApi(
     return true;
   }
 
+  // Route d'itération : déclarée avant le runMatch ($-ancré, pas de collision,
+  // mais l'ordre rend la priorité explicite).
+  const reviseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/revise$/);
+  if (reviseMatch && method === "POST") {
+    const id = decodeURIComponent(reviseMatch[1]);
+    const run = getRun(id);
+    if (!run) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    const body = await readBody(req);
+    const corrections = typeof body.corrections === "string" ? body.corrections.trim() : "";
+    if (!corrections) {
+      json(res, 400, { error: "Le champ 'corrections' est requis" });
+      return true;
+    }
+    if (run.status !== "done" || !run.steps.some((st) => st.agentName === "Monteur" && st.output)) {
+      json(res, 400, { error: "Rien à réviser : la tâche doit être terminée" });
+      return true;
+    }
+    const now = new Date().toISOString();
+    const iteration = (run.revisions?.length ?? 0) + 1;
+    const revision: RunRevision = { corrections, requestedAt: now, status: "running" };
+    run.revisions = [...(run.revisions ?? []), revision];
+    run.status = "running";
+    run.updatedAt = now;
+    saveRun(run);
+    json(res, 200, run);
+    void reviseRun(run, run.task, revision, iteration).catch((err) => {
+      run.status = "error";
+      run.updatedAt = new Date().toISOString();
+      revision.status = "error";
+      revision.error = err instanceof Error ? err.message : String(err);
+      saveRun(run);
+      console.error("Erreur révision:", err);
+    });
+    return true;
+  }
+
   const artifactMatch = pathname.match(/^\/api\/runs\/([^/]+)\/artifacts\/([^/]+)$/);
   if (artifactMatch && method === "GET") {
     const runId = decodeURIComponent(artifactMatch[1]);
@@ -520,6 +684,28 @@ async function handleApi(
     const run = getRun(decodeURIComponent(runMatch[1]));
     if (!run) json(res, 404, { error: "Run introuvable" });
     else json(res, 200, run);
+    return true;
+  }
+  if (runMatch && method === "DELETE") {
+    const id = decodeURIComponent(runMatch[1]);
+    const run = getRun(id);
+    if (!run) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    if (run.status === "running") {
+      json(res, 409, { error: "La tâche est en cours" });
+      return true;
+    }
+    // Nettoyages AVANT la suppression du run : si l'un échoue, la tâche reste
+    // dans le store (pas de livrables orphelins) et la requête peut être rejouée.
+    deleteRunArtifacts(id);
+    rmSync(join(DATA_DIR, "render", id), { recursive: true, force: true });
+    if (!deleteRun(id)) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    json(res, 200, { ok: true });
     return true;
   }
 

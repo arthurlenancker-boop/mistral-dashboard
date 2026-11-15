@@ -69,6 +69,12 @@
     margin: 2px 2px 8px; letter-spacing: 0.02em;
     font-family: var(--font-mono); text-transform: lowercase;
   }
+  .sidebar h2 .add {
+    font: inherit; background: none; border: none; cursor: pointer;
+    color: var(--muted); padding: 1px 4px; border-radius: 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .sidebar h2 .add:hover { color: var(--accent-ink); background: var(--accent-soft); }
   .agent-item, .run-item {
     padding: 8px 10px; border-radius: 8px; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -80,12 +86,17 @@
   .agent-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .agent-name { font-weight: 500; }
   .agent-role { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .agent-item .del {
+  .agent-item .del, .run-item .del {
     color: var(--muted); border: none; background: none; cursor: pointer;
-    font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+    font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex-shrink: 0;
   }
-  .agent-item .del:hover { color: var(--err); background: var(--err-soft); }
-  .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .agent-item .del:hover, .run-item .del:hover { color: var(--err); background: var(--err-soft); }
+  .agent-item .edit {
+    color: var(--muted); border: none; background: none; cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex-shrink: 0;
+  }
+  .agent-item .edit:hover { color: var(--accent-ink); background: var(--accent-soft); }
+  .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .run-item.active { color: var(--text); }
   .badge {
     font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
@@ -135,6 +146,11 @@
   .step pre {
     white-space: pre-wrap; font-size: 13px; line-height: 1.6;
     color: #3d3a33; font-family: var(--font-body);
+  }
+  .step h3 .step-chat {
+    margin-left: auto; flex-shrink: 0; padding: 2px 10px;
+    font-size: 11.5px; font-family: var(--font-body); font-weight: 500;
+    white-space: nowrap;
   }
 
   .chat { display: flex; flex-direction: column; height: 100%; }
@@ -248,6 +264,13 @@
   .skeleton.w40 { width: 40%; } .skeleton.w65 { width: 65%; } .skeleton.w85 { width: 85%; }
   @keyframes shimmer { to { background-position: -200% 0; } }
 
+  .onboard { text-align: left; margin: 16px auto 0; max-width: 480px; background: var(--panel); border: 1px solid #eceade; border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }
+  .onboard-title { font-family: var(--font-display); font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+  .onboard label { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); padding: 3px 0; }
+  .onboard label.done { color: var(--text); }
+  .onboard input { accent-color: var(--accent); }
+  .next-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
   #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 99; }
   .toast {
     background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--ok);
@@ -278,7 +301,7 @@
   <aside class="sidebar">
     <h1><span class="logo">◆</span> Agents Vidéo</h1>
     <section>
-      <h2>Agents</h2>
+      <h2 style="display:flex;align-items:center;justify-content:space-between">Agents <button class="add" id="new-agent" title="Créer un agent">+ Nouvel agent</button></h2>
       <div id="agents"></div>
     </section>
     <section style="flex:1">
@@ -302,7 +325,13 @@
           <li><b>2. Le pipeline tourne tout seul</b> : 5 agents se passent le travail en direct (graphe ci-dessus) — brief → storyboard → voix off → montage → contrôle qualité.</li>
           <li><b>3. Récupérez les livrables</b> en bas de la tâche : transcription JSON, voix off MP3, plan de montage et <b>vidéo MP4 rendue</b>.</li>
         </ol>
-        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement. La clé API se règle dans ⚙ Paramètres.</p>
+        <p class="hero-hint">💡 Astuce : cliquez sur un agent dans la sidebar pour discuter avec lui directement.</p>
+        <div class="onboard" id="onboard">
+          <div class="onboard-title">Mise en route</div>
+          <label id="ob-key"><input type="checkbox" disabled /> Clé API configurée (⚙ Paramètres)</label>
+          <label id="ob-voice"><input type="checkbox" disabled /> Voix de référence importée (MP3)</label>
+          <label id="ob-run"><input type="checkbox" disabled /> Première tâche lancée</label>
+        </div>
       </div>
     </div>
   </main>
@@ -322,6 +351,9 @@ function toast(msg, type = "ok") {
 
 let agents = [], runs = [], selectedAgent = null, selectedRun = null, pollTimer = null;
 
+// Vue d'accueil (hero) capturée avant tout re-rendu pour pouvoir y revenir (ex. après suppression de la tâche affichée).
+const HERO_HTML = $("#content").innerHTML;
+
 async function api(path, opts) {
   const res = await fetch(path, opts && {
     headers: { "Content-Type": "application/json" },
@@ -338,24 +370,39 @@ async function refreshSidebar() {
     `<div class="agent-item ${selectedAgent === a.id ? "active" : ""}" data-agent="${a.id}">
        <span class="dot ok" title="en ligne"></span>
        <span class="agent-meta"><span class="agent-name">${esc(a.name)}</span><span class="agent-role">${esc(a.role ?? "")}</span></span>
+       <button class="edit" data-edit="${a.id}" title="Modifier">✎</button>
        <button class="del" data-del="${a.id}" title="Supprimer">×</button>
      </div>`).join("");
   $("#runs").innerHTML = runs.length ? runs.map((r) =>
     `<div class="run-item ${selectedRun === r.id ? "active" : ""}" data-run="${r.id}">
        <span class="dot ${r.status}"></span><span class="run-task">${esc(r.task)}</span><span class="badge ${r.status}">${r.status}</span>
+       <button class="del" data-del="${r.id}" title="Supprimer">×</button>
      </div>`).join("") : '<div class="side-empty">Aucune tâche pour l’instant — lancez « + Nouvelle tâche ».</div>';
 }
 
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
+/** Retour à la vue d'accueil : réinjecte le hero (et son graphe) dans #content. */
+function showHome() {
+  stopPolling();
+  selectedRun = null; selectedAgent = null;
+  if (location.hash) location.hash = "";
+  $("#view-title").textContent = "";
+  $("#content").innerHTML = HERO_HTML;
+  renderHeroGraph();
+}
+
 function chatHistKey(id) { return `chat:${id}`; }
 
-function showChat(agent, onReply) {
+/** Id de tâche raccourci pour l'affichage (les id complets run_<ts>_<rand> sont longs). */
+function shortRunId(id) { return id.slice(-6); }
+
+function showChat(agent, onReply, contextRunId) {
   stopPolling();
   selectedRun = null; selectedAgent = agent.id;
   if (location.hash !== `#/agent/${agent.id}`) location.hash = `#/agent/${agent.id}`;
   document.title = `${agent.name} — Mistral Agents Dashboard`;
-  $("#view-title").textContent = `Chat avec ${agent.name}`;
+  $("#view-title").textContent = `Chat avec ${agent.name}${contextRunId ? ` — tâche ${shortRunId(contextRunId)}` : ""}`;
   $("#content").innerHTML = `<div class="chat" style="height:100%">
     <div class="chat-log" id="chat-log"></div>
     <form class="chat-form" id="chat-form">
@@ -375,7 +422,11 @@ function showChat(agent, onReply) {
     history.push({ role: "user", content: text });
     localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
     log.scrollTop = log.scrollHeight;
-    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: { messages: history } });
+    // Le runId contextualise l'appel ; il vit uniquement dans l'état de ce chat
+    // courant : jamais écrit dans l'historique localStorage (chat:<id>).
+    const chatBody = { messages: history };
+    if (contextRunId) chatBody.runId = contextRunId;
+    const { data } = await api(`/api/agents/${agent.id}/chat`, { method: "POST", body: chatBody });
     const reply = data.reply ?? "Erreur : " + (data.error ?? "");
     history.push({ role: "assistant", content: reply });
     localStorage.setItem(chatHistKey(agent.id), JSON.stringify(history.slice(-50)));
@@ -386,7 +437,10 @@ function showChat(agent, onReply) {
   refreshSidebar();
 }
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML.replace(/"/g, "&quot;"); }
+
+/** Tronque un texte à n caractères (ellipse), pour un affichage lisible en liste. */
+function tr(s, n = 140) { s = s ?? ""; return s.length > n ? s.slice(0, n).trimEnd() + "…" : s; }
 
 function graphSvg(run) {
   const W = 1000, H = 172, y = 74, steps = run.steps ?? [];
@@ -488,20 +542,69 @@ async function showRun(id, poll) {
         return `<div class="artifact"><strong>${esc(a.label)}</strong><br><video controls preload="none" src="${url}" style="width:100%;max-height:360px;background:#000;border-radius:8px"></video></div>`;
       return `<div class="artifact"><strong>${esc(a.label)}</strong> — <a href="${url}" download="${esc(a.name)}">télécharger</a></div>`;
     }).join("");
-    $("#content").innerHTML = graphSvg(run) + timelineHtml(run)
+    const revisionsHtml = (run.revisions ?? []).map((r) => `
+      <div class="artifact">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+          <span title="${esc(r.corrections)}">${esc(tr(r.corrections))}</span>
+          <span class="badge ${r.status}" style="flex-shrink:0">${r.status}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${esc(new Date(r.requestedAt).toLocaleDateString())}${r.error ? ` — <span style="color:var(--err)">${esc(r.error)}</span>` : ""}</div>
+      </div>`).join("");
+    const reviseBox = run.status === "done" ? `
+      <div class="step" id="revise-box">
+        <h3>✏ Itérer sur la vidéo</h3>
+        <textarea id="revise-input" rows="3" placeholder="Décrivez les corrections à apporter (ex. « raccourcis la scène 3 », « sous-titres plus grands ») — le Monteur retravaille le montage, le QA re-vérifie et les livrables sont régénérés." style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font:inherit"></textarea>
+        <div style="margin-top:10px"><button class="primary" id="send-revisions">Envoyer les corrections</button></div>
+      </div>` : "";
+    const next = run.status !== "running" ? `<div class="step"><h3>Et ensuite ?</h3>
+        <div class="next-actions">
+          <button class="ghost" id="copy-link">🔗 Copier le lien de cette tâche</button>
+          <button class="ghost" id="again">↻ Relancer une tâche similaire</button>
+          <button class="primary" id="go-new">+ Nouvelle tâche</button>
+        </div></div>` : "";
+    $("#content").innerHTML = graphSvg(run) + timelineHtml(run) + next
       + (artifacts ? `<div class="step"><h3>🎁 Livrables</h3>${artifacts}</div>` : "")
-      + run.steps.map((s) => `
+      + run.steps.map((s) => {
+        const stepAgent = agents.find((a) => a.name === s.agentName);
+        return `
       <div class="step">
-        <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span></h3>
+        <h3>${s.agentName} <span class="badge ${s.status}">${s.status}</span>${stepAgent ? `<button class="ghost step-chat" data-chat-agent="${esc(stepAgent.id)}" data-run="${esc(run.id)}" title="Discuter avec ${esc(stepAgent.name)} à propos de cette tâche">💬 discuter</button>` : ""}</h3>
         ${s.output ? `<pre>${esc(s.output)}</pre>` : s.status === "running" ? `<div class="skeleton w85"></div><div class="skeleton w65"></div><div class="skeleton w40"></div>` : ""}
         ${s.error ? `<pre style="color:var(--err)">${esc(s.error)}</pre>` : ""}
-      </div>`).join("");
+      </div>`;
+      }).join("")
+      + reviseBox
+      + (revisionsHtml ? `<div class="step" id="revisions-box"><h3>✏ Révisions</h3>${revisionsHtml}</div>` : "");
+    // Envoi des corrections : la tâche repasse en cours, le polling reprend
+    if (run.status === "done") {
+      $("#send-revisions").onclick = async () => {
+        const corrections = $("#revise-input").value.trim();
+        if (!corrections) { alert("Décrivez d'abord les corrections à appliquer"); return; }
+        const btn = $("#send-revisions");
+        btn.classList.add("loading");
+        const { status, data } = await api(`/api/runs/${run.id}/revise`, { method: "POST", body: { corrections } });
+        if (status !== 200) {
+          btn.classList.remove("loading");
+          toast(data.error ?? "Envoi impossible", "error");
+          return;
+        }
+        toast("Révision lancée — le Monteur retravaille la vidéo");
+        showRun(run.id, true);
+      };
+    }
   };
   const tick = async () => {
     const { data: run } = await api(`/api/runs/${id}`);
     if (!run.steps) return;
     render(run);
+    const cl = document.querySelector("#copy-link");
+    if (cl) cl.onclick = async () => { await navigator.clipboard.writeText(location.href); toast("Lien copié ✔"); };
+    const ag = document.querySelector("#again");
+    if (ag) ag.onclick = () => { document.querySelector("#new-task").click(); const t = document.querySelector("#task-input"); if (t) t.value = run.task; };
+    const gn = document.querySelector("#go-new");
+    if (gn) gn.onclick = () => document.querySelector("#new-task").click();
     refreshSidebar();
+    refreshOnboarding();
     if (run.status !== "running") stopPolling();
   };
   await tick();
@@ -569,6 +672,74 @@ $("#open-settings").onclick = async () => {
   refreshSidebar();
 };
 
+/** Panneau de création/édition d'un agent (agent = null → création, sinon édition pré-remplie). */
+function showAgentForm(agent) {
+  const isNew = !agent;
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = isNew ? "Nouvel agent" : `Modifier ${agent.name}`;
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>${isNew ? "+ Nouvel agent" : `✎ Modifier ${esc(agent.name)}`}</h3>
+    <label for="ae-name">Nom</label>
+    <input id="ae-name" placeholder="ex. Analyste" autocomplete="off" />
+    <label for="ae-role">Rôle</label>
+    <input id="ae-role" placeholder="ex. Analyse les documents" autocomplete="off" />
+    <label for="ae-order">Ordre dans le pipeline</label>
+    <input id="ae-order" type="number" step="1" placeholder="auto" style="max-width:120px" />
+    <label for="ae-prompt">Prompt système</label>
+    <textarea id="ae-prompt" rows="6" placeholder="Tu es…" style="width:100%"></textarea>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input id="ae-pipeline" type="checkbox" style="margin:0;padding:0" /> Participe aux tâches du pipeline</label>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button class="primary" id="ae-save">Enregistrer</button>
+      <button class="ghost" id="ae-cancel">Annuler</button>
+    </div>
+  </div>`;
+  // Pré-remplissage via .value (pas d'injection dans le HTML -> pas d'échappement à gérer)
+  $("#ae-name").value = isNew ? "" : agent.name;
+  $("#ae-role").value = isNew ? "" : (agent.role ?? "");
+  $("#ae-order").value = isNew ? "" : String(agent.order);
+  $("#ae-prompt").value = isNew ? "" : (agent.systemPrompt ?? "");
+  $("#ae-pipeline").checked = isNew ? true : agent.inPipeline !== false;
+  $("#ae-save").onclick = async () => {
+    const name = $("#ae-name").value.trim();
+    if (!name) { toast("Le nom est requis", "error"); return; }
+    let body;
+    if (isNew) {
+      // Création : POST complet, sémantique inchangée
+      body = { name, role: $("#ae-role").value.trim(), inPipeline: $("#ae-pipeline").checked };
+      const order = $("#ae-order").value.trim();
+      if (order !== "") body.order = Number(order);
+      const prompt = $("#ae-prompt").value;
+      if (prompt) body.systemPrompt = prompt;
+    } else {
+      // Édition : n'envoie QUE les champs réellement modifiés. Les agents du
+      // pipeline refusent name/inPipeline côté serveur — envoyer le nom
+      // pré-rempli inchangé y déclencherait un 400 trompeur.
+      const pipelineOrigine = agent.inPipeline !== false;
+      body = {};
+      if (name !== agent.name) body.name = name;
+      const role = $("#ae-role").value.trim();
+      if (role !== (agent.role ?? "")) body.role = role;
+      const order = $("#ae-order").value.trim();
+      if (order !== "" && order !== String(agent.order)) body.order = Number(order);
+      const prompt = $("#ae-prompt").value;
+      if (prompt !== (agent.systemPrompt ?? "")) body.systemPrompt = prompt;
+      if ($("#ae-pipeline").checked !== pipelineOrigine) body.inPipeline = $("#ae-pipeline").checked;
+    }
+    $("#ae-save").classList.add("loading");
+    const { status, data } = isNew
+      ? await api("/api/agents", { method: "POST", body })
+      : await api(`/api/agents/${agent.id}`, { method: "PUT", body });
+    $("#ae-save").classList.remove("loading");
+    if (status !== 200 && status !== 201) { toast(data.error ?? "Enregistrement impossible", "error"); return; }
+    toast(isNew ? "Agent créé" : "Agent enregistré");
+    await refreshSidebar();
+    showHome();
+  };
+  $("#ae-cancel").onclick = () => showHome();
+}
+$("#new-agent").onclick = () => showAgentForm(null);
+
 $("#new-task").onclick = async () => {
   stopPolling();
   selectedAgent = null; selectedRun = null;
@@ -626,6 +797,12 @@ $("#new-task").onclick = async () => {
 };
 
 $("#agents").onclick = async (e) => {
+  const edit = e.target.dataset.edit;
+  if (edit) {
+    e.stopPropagation();
+    showAgentForm(agents.find((a) => a.id === edit));
+    return;
+  }
   const del = e.target.dataset.del;
   if (del) {
     e.stopPropagation();
@@ -644,9 +821,36 @@ $("#agents").onclick = async (e) => {
   if (id) showChat(agents.find((a) => a.id === id));
 };
 
-$("#runs").onclick = (e) => {
+$("#runs").onclick = async (e) => {
+  const del = e.target.dataset.del;
+  if (del) {
+    e.stopPropagation();
+    const btn = e.target;
+    if (!btn.classList.contains("confirm")) {
+      btn.classList.add("confirm"); btn.textContent = "✓";
+      setTimeout(() => { btn.classList.remove("confirm"); btn.textContent = "×"; }, 3000);
+      return;
+    }
+    const { status, data } = await api(`/api/runs/${del}`, { method: "DELETE" });
+    if (status !== 200) { toast(data.error ?? "Suppression impossible", "error"); return; }
+    toast("Tâche supprimée");
+    if (selectedRun === del) showHome();
+    refreshSidebar();
+    return;
+  }
   const id = e.target.closest("[data-run]")?.dataset.run;
   if (id) showRun(id, false);
+};
+
+// Boutons « discuter » des steps de la vue tâche : délégation sur #content car
+// render() réécrit l'innerHTML à chaque tick de polling — un bind direct sur les
+// boutons serait perdu au re-render suivant. Le run porté par le bouton
+// contextualise le chat à la tâche affichée.
+$("#content").onclick = (e) => {
+  const chatBtn = e.target.closest(".step-chat");
+  if (!chatBtn) return;
+  const agent = agents.find((a) => a.id === chatBtn.dataset.chatAgent);
+  if (agent) showChat(agent, undefined, chatBtn.dataset.run);
 };
 
 function renderHeroGraph() {
@@ -670,7 +874,17 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
-refreshSidebar().then(() => { renderHeroGraph(); route(); });
+async function refreshOnboarding() {
+  const el = document.querySelector("#onboard");
+  if (!el) return;
+  const s = await (await fetch("/api/settings")).json();
+  const set = (id, ok) => { const l = document.querySelector(id); if (l) { l.querySelector("input").checked = ok; l.classList.toggle("done", ok); } };
+  set("#ob-key", !!s.hasKey);
+  set("#ob-voice", !!s.hasVoiceReference);
+  set("#ob-run", runs.length > 0);
+}
+
+refreshSidebar().then(() => { renderHeroGraph(); route(); refreshOnboarding(); });
 </script>
 </body>
 </html>

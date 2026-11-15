@@ -1,11 +1,26 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, cpSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
+import { DATA_DIR } from "./store.js";
 
-const DATA_DIR = join(process.cwd(), "data");
 const RENDER_DIR = join(DATA_DIR, "render");
 const TEMPLATE_DIR = join(RENDER_DIR, "template");
 mkdirSync(RENDER_DIR, { recursive: true });
+
+const IS_WIN = process.platform === "win32";
+
+/**
+ * Exécute npm/npx de façon inter-plateforme : sous Windows ce sont des .cmd,
+ * il faut passer par le shell — args guillemetés car le shell ne les échappe pas.
+ */
+function runCmd(cmd: string, args: string[], opts: { cwd: string; stdio?: "inherit" | "pipe"; timeout?: number; maxBuffer?: number }): void {
+  if (!IS_WIN) {
+    execFileSync(cmd, args, opts);
+    return;
+  }
+  const line = [cmd, ...args.map((a) => `"${a}"`)].join(" ");
+  execFileSync(line, { ...opts, shell: true });
+}
 
 export const RENDER_WIDTH = Number(process.env.RENDER_WIDTH ?? 1920);
 export const RENDER_HEIGHT = Number(process.env.RENDER_HEIGHT ?? 1080);
@@ -61,9 +76,9 @@ function ensureTemplate(): void {
   if (templateReady && existsSync(join(TEMPLATE_DIR, "node_modules"))) return;
   mkdirSync(join(TEMPLATE_DIR, "src"), { recursive: true });
   writeFileSync(join(TEMPLATE_DIR, "package.json"), JSON.stringify(TEMPLATE_PACKAGE, null, 2));
-  execFileSync("npm", ["install", "--no-audit", "--no-fund"], { cwd: TEMPLATE_DIR, stdio: "inherit" });
-  // Télécharge Chrome Headless Shell (nécessite les libs système : libnss3, libnspr4, libatk, etc.)
-  execFileSync("npx", ["remotion", "browser", "ensure"], { cwd: TEMPLATE_DIR, stdio: "inherit" });
+  runCmd("npm", ["install", "--no-audit", "--no-fund"], { cwd: TEMPLATE_DIR, stdio: "inherit" });
+  // Télécharge Chrome Headless Shell (nécessite les libs système sur Linux, rien sur Windows)
+  runCmd("npx", ["remotion", "browser", "ensure"], { cwd: TEMPLATE_DIR, stdio: "inherit" });
   templateReady = true;
 }
 
@@ -85,13 +100,15 @@ export function renderVideoToFile(workDir: string, agentCode: string, outFile: s
   rmSync(workDir, { recursive: true, force: true });
   mkdirSync(join(workDir, "src"), { recursive: true });
   cpSync(join(TEMPLATE_DIR, "package.json"), join(workDir, "package.json"));
-  // node_modules du template partagé via symlink (évite de copier des centaines de Mo par rendu)
-  symlinkSync(join(TEMPLATE_DIR, "node_modules"), join(workDir, "node_modules"), "dir");
+  // node_modules du template partagé via lien (évite de copier des centaines de Mo par rendu).
+  // Sous Windows, un symlink de répertoire exigerait les privilèges admin : junction à la place.
+  const nmTarget = join(TEMPLATE_DIR, "node_modules");
+  symlinkSync(nmTarget, join(workDir, "node_modules"), IS_WIN ? "junction" : "dir");
   writeFileSync(join(workDir, "src", "index.ts"), INDEX_TS);
   writeFileSync(join(workDir, "src", "Root.tsx"), ROOT_TSX);
   writeFileSync(join(workDir, "src", "Video.tsx"), VIDEO_TSX);
   writeFileSync(join(workDir, "src", "Agent.tsx"), agentCode);
-  execFileSync(
+  runCmd(
     "npx",
     ["remotion", "render", "src/index.ts", "Video", outFile, "--codec", "h264"],
     { cwd: workDir, stdio: "pipe", timeout: RENDER_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024 },

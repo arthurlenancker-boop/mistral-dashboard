@@ -58,19 +58,24 @@ l'utilisateur :
 |---|---|---|
 | GET | `/api/agents` | Liste des agents |
 | POST | `/api/agents` | Créer un agent |
+| PUT | `/api/agents/:id` | Modifier un agent (nom, rôle, ordre, prompt, pipeline) — `name` et `inPipeline` refusés (`400`) pour les 5 agents du pipeline (identifiés par leur nom par les livrables et la boucle QA) ; libre pour les agents créés dans l'UI |
 | DELETE | `/api/agents/:id` | Supprimer un agent |
-| POST | `/api/agents/:id/chat` | Chat direct avec un agent |
+| POST | `/api/agents/:id/chat` | Chat direct avec un agent ; `runId` optionnel contextualise l'agent à une tâche (tâche + sorties des agents en contexte, run inconnu → `404`) |
 | POST | `/api/runs` | Lancer le pipeline `{ task }` |
+| GET | `/api/runs` | Liste des exécutions |
+| GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
+| DELETE | `/api/runs/:id` | Supprimer une exécution terminée et ses livrables (409 si en cours) |
 | GET | `/api/runs/:id/artifacts/:file` | Télécharger un livrable (MP3, JSON, MD) |
+| POST | `/api/runs/:id/revise` | Itérer sur une vidéo terminée `{ corrections }` |
 
 ## Livrables (artefacts)
 
 Quand une tâche termine, le serveur produit des artefacts dans `data/artifacts/` (gitignoré) et les affiche dans l'UI (section « 🎁 Livrables ») :
 
 - `transcript.json` — transcription complète de la tâche (toutes les sorties d'agents)
-- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`) à partir de la sortie de l'agent Voix
+- `voix-off.mp3` — voix off synthétisée via l'API speech Mistral (`POST /v1/audio/speech`) à partir de la sortie de l'agent Voix ; texte long pris en charge : découpage automatique en chunks de phrases (≤ 1800 caractères, `splitTtsChunks`) puis concaténation des MP3 — plus de troncature silencieuse
 - `montage.md` — plan de montage produit par l'agent Monteur
-- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps ; la **durée est calculée depuis le contenu** via le `calculateMetadata` exporté par l'agent — somme des durées audio réelles, jamais une valeur fixe ; `RENDER_DURATION_FRAMES` n'est qu'un fallback, `RENDER_VIDEO=0` désactive le rendu). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2`.
+- `video.mp4` — **rendu MP4 réel** : le code Remotion généré par le Monteur est compilé et rendu headless dans le dashboard (`src/render.ts`, 1920×1080@30 fps ; la **durée est calculée depuis le contenu** via le `calculateMetadata` exporté par l'agent — somme des durées audio réelles, jamais une valeur fixe ; `RENDER_DURATION_FRAMES` n'est qu'un fallback, `RENDER_VIDEO=0` désactive le rendu). Le lecteur vidéo est intégré à la section Livrables. Le template Remotion (npm install + Chrome Headless Shell via `npx remotion browser ensure`) est préparé automatiquement et mis en cache dans `data/render/template/`. **Prérequis système Linux** (Debian/Ubuntu) : `sudo apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2` ; sous Windows, aucun prérequis : le rendu et les commandes npm/npx fonctionnent nativement (`node_modules` du template lié par junction).
 
 Le chat reste via le SDK officiel `@mistralai/mistralai` (`mistral-large-4`) ; la synthèse vocale passe par l'endpoint REST car le SDK 1.15.x n'expose pas encore `audio.speech`. La clé reste exclusivement côté serveur.
 
@@ -103,10 +108,37 @@ Au lancement d'une tâche (« + Nouvelle tâche »), joignez un fichier de cours
 - **OneNote** : exportez la page en `.md`/`.txt` (Fichier → Exporter) ou copiez-collez le texte dans un `.txt`, puis joignez-le
 
 Le texte extrait est enregistré dans `data/courses/`, injecté dans le brief initial du pipeline (les agents travaillent directement dessus) et ajouté aux livrables téléchargeables.
-| GET | `/api/runs` | Liste des exécutions |
-| GET | `/api/runs/:id` | Détail d'une exécution (statuts running/done/error) |
+
+## Itérer sur une vidéo
+
+Une tâche **terminée** peut être retravaillée sans repartir de zéro : dans la vue
+tâche (statut `done`), la section **✏ Itérer sur la vidéo** permet de décrire des
+corrections ciblées (« raccourcis la scène 3 », « sous-titres plus grands »…).
+`POST /api/runs/:id/revise { corrections }` rejoue la mécanique de la boucle QA
+du pipeline, en une passe :
+
+1. le **Monteur** reçoit son brief complet (tâche + sorties des agents) suivi du
+   bloc `CORRECTIONS DEMANDÉES PAR L'UTILISATEUR (itération N)` ; sa sortie est
+   mise à jour en place ;
+2. le **QA** re-vérifie une fois (si l'agent QA existe) ;
+3. les livrables sont **régénérés** — la liste d'artefacts est recréée à plat
+   (l'artefact du cours joint au lancement est préservé).
+
+La tâche repasse en `running` puis `done`, et l'historique des révisions
+(corrections, date, statut) est listé dans la vue tâche. En cas d'échec d'appel,
+la révision passe en `error` avec le message renvoyé par l'API (visible dans
+l'historique). Guardes : run inconnu → `404` ; corrections absentes/vides → `400` ;
+tâche non terminée ou sans sortie Monteur → `400` (« Rien à réviser : la tâche
+doit être terminée »). **Le chemin nominal (itération jusqu'à la régénération de
+la vidéo) exige une vraie clé API Mistral** — avec une clé invalide, l'appel du
+Monteur échoue et la révision s'arrête en `error`.
 
 ## Scripts
 
 - `npm run dev` — serveur en mode watch
 - `npm run typecheck` — vérification TypeScript
+- `npm test` — tests d'API (node:test, 23 tests, isolés via `DATA_DIR`)
+- `npm run test:ui` — test Playwright du rendu réel (SKIP propre sans navigateur headless ; `npx -y playwright@1.65.1 install chromium` pour l'installer en local)
+
+Les données (agents, tâches, artefacts) vivent dans `data/` — surchargeable via la
+variable `DATA_DIR`, utilisée par les tests pour ne jamais écrire dans `data/`.

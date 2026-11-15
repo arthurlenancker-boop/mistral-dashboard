@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { SEED_AGENTS, type Agent } from "./agents.js";
 
-const DATA_DIR = join(process.cwd(), "data");
+/** Répertoire de données : surchargeable via DATA_DIR (utilisée par les tests pour s'isoler). */
+export const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(process.cwd(), "data");
 const AGENTS_FILE = join(DATA_DIR, "agents.json");
 const RUNS_FILE = join(DATA_DIR, "runs.json");
 const SETTINGS_FILE = join(DATA_DIR, "settings.json");
@@ -36,6 +37,13 @@ export interface Artifact {
   error?: string;
 }
 
+export interface RunRevision {
+  corrections: string;
+  requestedAt: string;
+  status: "running" | "done" | "error";
+  error?: string;
+}
+
 export interface Run {
   id: string;
   task: string;
@@ -45,6 +53,7 @@ export interface Run {
   steps: RunStep[];
   artifacts?: Artifact[];
   course?: string;
+  revisions?: RunRevision[];
 }
 
 export interface ChatMessage {
@@ -95,4 +104,13 @@ export function saveRun(run: Run): void {
 
 export function newRunId(): string {
   return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Retire une tâche du store ; false si l'identifiant est inconnu. */
+export function deleteRun(id: string): boolean {
+  const runs = getRuns();
+  const next = runs.filter((r) => r.id !== id);
+  if (next.length === runs.length) return false;
+  save(RUNS_FILE, next);
+  return true;
 }
