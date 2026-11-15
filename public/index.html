@@ -69,6 +69,12 @@
     margin: 2px 2px 8px; letter-spacing: 0.02em;
     font-family: var(--font-mono); text-transform: lowercase;
   }
+  .sidebar h2 .add {
+    font: inherit; background: none; border: none; cursor: pointer;
+    color: var(--muted); padding: 1px 4px; border-radius: 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .sidebar h2 .add:hover { color: var(--accent-ink); background: var(--accent-soft); }
   .agent-item, .run-item {
     padding: 8px 10px; border-radius: 8px; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -85,6 +91,11 @@
     font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex-shrink: 0;
   }
   .agent-item .del:hover, .run-item .del:hover { color: var(--err); background: var(--err-soft); }
+  .agent-item .edit {
+    color: var(--muted); border: none; background: none; cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex-shrink: 0;
+  }
+  .agent-item .edit:hover { color: var(--accent-ink); background: var(--accent-soft); }
   .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .run-item.active { color: var(--text); }
   .badge {
@@ -278,7 +289,7 @@
   <aside class="sidebar">
     <h1><span class="logo">◆</span> Agents Vidéo</h1>
     <section>
-      <h2>Agents</h2>
+      <h2 style="display:flex;align-items:center;justify-content:space-between">Agents <button class="add" id="new-agent" title="Créer un agent">+ Nouvel agent</button></h2>
       <div id="agents"></div>
     </section>
     <section style="flex:1">
@@ -341,6 +352,7 @@ async function refreshSidebar() {
     `<div class="agent-item ${selectedAgent === a.id ? "active" : ""}" data-agent="${a.id}">
        <span class="dot ok" title="en ligne"></span>
        <span class="agent-meta"><span class="agent-name">${esc(a.name)}</span><span class="agent-role">${esc(a.role ?? "")}</span></span>
+       <button class="edit" data-edit="${a.id}" title="Modifier">✎</button>
        <button class="del" data-del="${a.id}" title="Supprimer">×</button>
      </div>`).join("");
   $("#runs").innerHTML = runs.length ? runs.map((r) =>
@@ -583,6 +595,56 @@ $("#open-settings").onclick = async () => {
   refreshSidebar();
 };
 
+/** Panneau de création/édition d'un agent (agent = null → création, sinon édition pré-remplie). */
+function showAgentForm(agent) {
+  const isNew = !agent;
+  stopPolling();
+  selectedAgent = null; selectedRun = null;
+  $("#view-title").textContent = isNew ? "Nouvel agent" : `Modifier ${agent.name}`;
+  $("#content").innerHTML = `<div class="step settings">
+    <h3>${isNew ? "+ Nouvel agent" : `✎ Modifier ${esc(agent.name)}`}</h3>
+    <label for="ae-name">Nom</label>
+    <input id="ae-name" placeholder="ex. Analyste" autocomplete="off" />
+    <label for="ae-role">Rôle</label>
+    <input id="ae-role" placeholder="ex. Analyse les documents" autocomplete="off" />
+    <label for="ae-order">Ordre dans le pipeline</label>
+    <input id="ae-order" type="number" step="1" placeholder="auto" style="max-width:120px" />
+    <label for="ae-prompt">Prompt système</label>
+    <textarea id="ae-prompt" rows="6" placeholder="Tu es…" style="width:100%"></textarea>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input id="ae-pipeline" type="checkbox" style="margin:0;padding:0" /> Participe aux tâches du pipeline</label>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button class="primary" id="ae-save">Enregistrer</button>
+      <button class="ghost" id="ae-cancel">Annuler</button>
+    </div>
+  </div>`;
+  // Pré-remplissage via .value (pas d'injection dans le HTML -> pas d'échappement à gérer)
+  $("#ae-name").value = isNew ? "" : agent.name;
+  $("#ae-role").value = isNew ? "" : (agent.role ?? "");
+  $("#ae-order").value = isNew ? "" : String(agent.order);
+  $("#ae-prompt").value = isNew ? "" : (agent.systemPrompt ?? "");
+  $("#ae-pipeline").checked = isNew ? true : agent.inPipeline !== false;
+  $("#ae-save").onclick = async () => {
+    const name = $("#ae-name").value.trim();
+    if (!name) { toast("Le nom est requis", "error"); return; }
+    const body = { name, role: $("#ae-role").value.trim(), inPipeline: $("#ae-pipeline").checked };
+    const order = $("#ae-order").value.trim();
+    if (order !== "") body.order = Number(order);
+    const prompt = $("#ae-prompt").value;
+    if (prompt || !isNew) body.systemPrompt = prompt; // création : prompt vide -> défaut du serveur
+    $("#ae-save").classList.add("loading");
+    const { status, data } = isNew
+      ? await api("/api/agents", { method: "POST", body })
+      : await api(`/api/agents/${agent.id}`, { method: "PUT", body });
+    $("#ae-save").classList.remove("loading");
+    if (status !== 200 && status !== 201) { toast(data.error ?? "Enregistrement impossible", "error"); return; }
+    toast(isNew ? "Agent créé" : "Agent enregistré");
+    await refreshSidebar();
+    showHome();
+  };
+  $("#ae-cancel").onclick = () => showHome();
+}
+$("#new-agent").onclick = () => showAgentForm(null);
+
 $("#new-task").onclick = async () => {
   stopPolling();
   selectedAgent = null; selectedRun = null;
@@ -640,6 +702,12 @@ $("#new-task").onclick = async () => {
 };
 
 $("#agents").onclick = async (e) => {
+  const edit = e.target.dataset.edit;
+  if (edit) {
+    e.stopPropagation();
+    showAgentForm(agents.find((a) => a.id === edit));
+    return;
+  }
   const del = e.target.dataset.del;
   if (del) {
     e.stopPropagation();

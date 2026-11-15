@@ -334,6 +334,29 @@ async function handleApi(
       json(res, 200, { ok: true });
       return true;
     }
+    if (method === "PUT") {
+      const body = await readBody(req);
+      if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
+        json(res, 400, { error: "Le champ 'name' doit être une chaîne non vide" });
+        return true;
+      }
+      const agents = getAgents();
+      const idx = agents.findIndex((a) => a.id === id);
+      if (idx === -1) {
+        json(res, 404, { error: `Agent '${id}' introuvable` });
+        return true;
+      }
+      const agent: Agent = { ...agents[idx] };
+      if (body.name !== undefined) agent.name = String(body.name).trim();
+      if (body.role !== undefined) agent.role = String(body.role).trim();
+      if (body.order !== undefined) agent.order = Number(body.order);
+      if (body.systemPrompt !== undefined) agent.systemPrompt = String(body.systemPrompt);
+      if (body.inPipeline !== undefined) agent.inPipeline = Boolean(body.inPipeline);
+      agents[idx] = agent;
+      saveAgents(agents);
+      json(res, 200, agent);
+      return true;
+    }
   }
 
   const chatMatch = pathname.match(/^\/api\/agents\/([^/]+)\/chat$/);

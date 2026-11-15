@@ -141,3 +141,14 @@ test("polices auto-hébergées servies en font/woff2", async () => {
   assert.equal(r.status, 200);
   assert.equal(r.headers.get("content-type"), "font/woff2");
 });
+
+test("PUT /api/agents/:id met à jour partiellement, 404 inconnu, 400 name vide", async () => {
+  const agents = (await (await fetch(BASE + "/api/agents")).json()) as any[];
+  const put = await fetch(`${BASE}/api/agents/${agents[1].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: "nouveau rôle", order: "7" }) });
+  assert.equal(put.status, 200);
+  const updated = (await j(put)) as any;
+  assert.equal(updated.role, "nouveau rôle");
+  assert.equal(updated.order, 7);
+  assert.equal((await fetch(BASE + "/api/agents/agent_inconnu", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "x" }) })).status, 404);
+  assert.equal((await fetch(`${BASE}/api/agents/${agents[1].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "  " }) })).status, 400);
+});

@@ -101,6 +101,19 @@ try {
     // seule la tâche du check précédent reste dans la sidebar
     assert.equal(await page.locator(".run-item").count(), 1);
   });
+
+  await check("création agent : « + Nouvel agent » -> formulaire -> ligne visible dans la sidebar", async () => {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.click("#new-agent");
+    await page.locator("#ae-name").waitFor({ state: "visible" });
+    await page.fill("#ae-name", "Agent de test UI");
+    await page.click("#ae-save");
+    const row = page.locator(".agent-item", { hasText: "Agent de test UI" });
+    await row.waitFor({ state: "visible", timeout: 10000 });
+    assert.ok((await row.locator(".agent-name").textContent()).includes("Agent de test UI"));
+    // après enregistrement : retour hero + liste rafraîchie
+    await page.locator("#hero-graph svg").waitFor({ state: "visible" });
+  });
 } finally {
   await browser?.close();
   server?.kill("SIGTERM");
