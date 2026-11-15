@@ -677,11 +677,29 @@ function showAgentForm(agent) {
   $("#ae-save").onclick = async () => {
     const name = $("#ae-name").value.trim();
     if (!name) { toast("Le nom est requis", "error"); return; }
-    const body = { name, role: $("#ae-role").value.trim(), inPipeline: $("#ae-pipeline").checked };
-    const order = $("#ae-order").value.trim();
-    if (order !== "") body.order = Number(order);
-    const prompt = $("#ae-prompt").value;
-    if (prompt || !isNew) body.systemPrompt = prompt; // création : prompt vide -> défaut du serveur
+    let body;
+    if (isNew) {
+      // Création : POST complet, sémantique inchangée
+      body = { name, role: $("#ae-role").value.trim(), inPipeline: $("#ae-pipeline").checked };
+      const order = $("#ae-order").value.trim();
+      if (order !== "") body.order = Number(order);
+      const prompt = $("#ae-prompt").value;
+      if (prompt) body.systemPrompt = prompt;
+    } else {
+      // Édition : n'envoie QUE les champs réellement modifiés. Les agents du
+      // pipeline refusent name/inPipeline côté serveur — envoyer le nom
+      // pré-rempli inchangé y déclencherait un 400 trompeur.
+      const pipelineOrigine = agent.inPipeline !== false;
+      body = {};
+      if (name !== agent.name) body.name = name;
+      const role = $("#ae-role").value.trim();
+      if (role !== (agent.role ?? "")) body.role = role;
+      const order = $("#ae-order").value.trim();
+      if (order !== "" && order !== String(agent.order)) body.order = Number(order);
+      const prompt = $("#ae-prompt").value;
+      if (prompt !== (agent.systemPrompt ?? "")) body.systemPrompt = prompt;
+      if ($("#ae-pipeline").checked !== pipelineOrigine) body.inPipeline = $("#ae-pipeline").checked;
+    }
     $("#ae-save").classList.add("loading");
     const { status, data } = isNew
       ? await api("/api/agents", { method: "POST", body })

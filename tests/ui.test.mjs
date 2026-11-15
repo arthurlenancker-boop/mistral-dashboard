@@ -128,6 +128,29 @@ try {
     // après enregistrement : retour hero + liste rafraîchie
     await page.locator("#hero-graph svg").waitFor({ state: "visible" });
   });
+
+  await check("édition agent pipeline : rôle seul modifié depuis le formulaire (seed QA) -> succès, nom inchangé, rôle restauré", async () => {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.locator(".agent-item", { hasText: "QA" }).locator(".edit").click();
+    await page.locator("#ae-role").waitFor({ state: "visible" });
+    const roleOrigine = await page.locator("#ae-role").inputValue();
+    // modifier UNIQUEMENT le rôle : le PUT ne doit partir qu'avec les champs réellement modifiés
+    // (name/inPipeline pré-remplis inchangés déclencheraient la garde seed côté serveur)
+    await page.fill("#ae-role", "QA vidéo (test e2e)");
+    await page.click("#ae-save");
+    const t = page.locator(".toast.ok").first();
+    await t.waitFor({ state: "visible", timeout: 10000 });
+    assert.ok((await t.textContent()).includes("Agent enregistré"), "toast de succès attendu (pas une erreur 400 de la garde)");
+    const rowQa = page.locator(".agent-item", { hasText: "QA" });
+    await rowQa.locator(".agent-name", { hasText: "QA" }).waitFor({ state: "visible", timeout: 10000 });
+    await rowQa.locator(".agent-role", { hasText: "QA vidéo" }).waitFor({ state: "visible", timeout: 10000 });
+    // aller-retour complet : restauration du rôle d'origine via la même UI
+    await rowQa.locator(".edit").click();
+    await page.locator("#ae-role").waitFor({ state: "visible" });
+    await page.fill("#ae-role", roleOrigine);
+    await page.click("#ae-save");
+    await page.locator(".agent-item", { hasText: "QA" }).locator(".agent-role", { hasText: roleOrigine }).waitFor({ state: "visible", timeout: 10000 });
+  });
 } finally {
   await browser?.close();
   server?.kill("SIGTERM");
