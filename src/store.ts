@@ -97,3 +97,12 @@ export function saveRun(run: Run): void {
 export function newRunId(): string {
   return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/** Retire une tâche du store ; false si l'identifiant est inconnu. */
+export function deleteRun(id: string): boolean {
+  const runs = getRuns();
+  const next = runs.filter((r) => r.id !== id);
+  if (next.length === runs.length) return false;
+  save(RUNS_FILE, next);
+  return true;
+}

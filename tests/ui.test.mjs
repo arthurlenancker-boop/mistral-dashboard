@@ -82,6 +82,25 @@ try {
     await page.locator(".graph svg").waitFor({ state: "visible" });
     assert.ok((await page.locator("#view-title").textContent()).includes("Vidéo de test UI"));
   });
+
+  await check("suppression : croix 2 clics -> ligne disparue + retour hero", async () => {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.click("#new-task");
+    await page.fill("#task-input", "Tâche à supprimer");
+    await page.click("#launch-task");
+    await page.locator(".timeline svg").waitFor({ state: "visible", timeout: 10000 });
+    // clé fictive : le pipeline passe vite en error ; attendre la fin avant de supprimer (sinon 409)
+    await page.locator('.run-item:has-text("Tâche à supprimer") .badge.error').waitFor({ state: "visible", timeout: 15000 });
+    const del = page.locator('.run-item:has-text("Tâche à supprimer") .del');
+    await del.click({ timeout: 10000 }); // 1er clic : état confirm (le bouton passe ✓)
+    await page.locator('.run-item .del.confirm').waitFor({ state: "visible" });
+    await del.click(); // 2e clic : suppression effective
+    await page.locator('.run-item:has-text("Tâche à supprimer")').waitFor({ state: "detached", timeout: 10000 });
+    // la tâche supprimée était la vue courante -> retour sur la vue d'accueil du hero
+    await page.locator("#hero-graph svg").waitFor({ state: "visible", timeout: 10000 });
+    // seule la tâche du check précédent reste dans la sidebar
+    assert.equal(await page.locator(".run-item").count(), 1);
+  });
 } finally {
   await browser?.close();
   server?.kill("SIGTERM");

@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, cpSync, rmSync } from "node:fs";
 import { join, extname } from "node:path";
 import { SEED_AGENTS, COMMON_CONTRACT, type Agent } from "./agents.js";
 import {
@@ -9,6 +9,7 @@ import {
   getRuns,
   getRun,
   saveRun,
+  deleteRun,
   newRunId,
   getSettings,
   saveSettings,
@@ -28,6 +29,7 @@ import {
 import {
   saveArtifactFile,
   readArtifactFile,
+  deleteRunArtifacts,
   artifactMime,
   artifactFilePath,
   synthesizeSpeech,
@@ -521,6 +523,23 @@ async function handleApi(
     const run = getRun(decodeURIComponent(runMatch[1]));
     if (!run) json(res, 404, { error: "Run introuvable" });
     else json(res, 200, run);
+    return true;
+  }
+  if (runMatch && method === "DELETE") {
+    const id = decodeURIComponent(runMatch[1]);
+    const run = getRun(id);
+    if (!run) {
+      json(res, 404, { error: "Run introuvable" });
+      return true;
+    }
+    if (run.status === "running") {
+      json(res, 409, { error: "La tâche est en cours" });
+      return true;
+    }
+    deleteRun(id);
+    deleteRunArtifacts(id);
+    rmSync(join(DATA_DIR, "render", id), { recursive: true, force: true });
+    json(res, 200, { ok: true });
     return true;
   }
 

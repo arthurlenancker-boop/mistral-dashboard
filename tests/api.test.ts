@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -81,6 +81,21 @@ test("POST /api/runs crée une tâche avec 5 étapes dans l'ordre du pipeline", 
     await new Promise((r) => setTimeout(r, 250));
   }
   assert.fail("Le run est resté bloqué en running");
+});
+
+test("DELETE /api/runs/:id supprime la tâche et ses artefacts", async () => {
+  const r = await fetch(BASE + "/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task: "tâche à supprimer" }) });
+  const run = (await j(r)) as any;
+  for (let i = 0; i < 40; i++) { const d = await (await fetch(`${BASE}/api/runs/${run.id}`)).json() as any; if (d.status === "error") break; await new Promise((x) => setTimeout(x, 250)); }
+  // déposer un artefact factice pour vérifier le nettoyage
+  writeFileSync(join(workdir, "artifacts", `${run.id}__voix-off.mp3`), Buffer.from("x"));
+  const d = await fetch(`${BASE}/api/runs/${run.id}`, { method: "DELETE" });
+  assert.equal(d.status, 200);
+  assert.equal(existsSync(join(workdir, "artifacts", `${run.id}__voix-off.mp3`)), false);
+  const list = (await (await fetch(BASE + "/api/runs")).json()) as any[];
+  assert.ok(!list.some((x) => x.id === run.id));
+  assert.equal((await fetch(`${BASE}/api/runs/${run.id}`)).status, 404);
+  assert.equal((await fetch(`${BASE}/api/runs/${run.id}`, { method: "DELETE" })).status, 404);
 });
 
 test("GET /api/settings masque la clé", async () => {

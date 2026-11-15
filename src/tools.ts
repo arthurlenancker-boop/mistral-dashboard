@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, extname, normalize } from "node:path";
 import { DATA_DIR, type Artifact } from "./store.js";
 import { effectiveApiKey } from "./mistral.js";
@@ -113,6 +113,16 @@ export function readArtifactFile(runId: string, name: string): Buffer | null {
   const file = artifactFilePath(runId, name);
   if (!file.startsWith(ARTIFACTS_DIR) || !existsSync(file)) return null;
   return readFileSync(file);
+}
+
+/** Supprime tous les fichiers d'artefacts d'une tâche (`<runId>__*`) ; no-op si le dossier des artefacts est absent. */
+export function deleteRunArtifacts(runId: string): void {
+  if (!existsSync(ARTIFACTS_DIR)) return;
+  for (const name of readdirSync(ARTIFACTS_DIR)) {
+    if (name.startsWith(`${runId}__`)) {
+      unlinkSync(join(ARTIFACTS_DIR, name));
+    }
+  }
 }
 
 export const ARTIFACT_MIME: Record<string, string> = {

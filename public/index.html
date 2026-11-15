@@ -80,12 +80,12 @@
   .agent-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .agent-name { font-weight: 500; }
   .agent-role { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .agent-item .del {
+  .agent-item .del, .run-item .del {
     color: var(--muted); border: none; background: none; cursor: pointer;
-    font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px;
+    font-size: 15px; line-height: 1; padding: 2px 4px; border-radius: 6px; flex-shrink: 0;
   }
-  .agent-item .del:hover { color: var(--err); background: var(--err-soft); }
-  .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .agent-item .del:hover, .run-item .del:hover { color: var(--err); background: var(--err-soft); }
+  .run-item { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .run-item.active { color: var(--text); }
   .badge {
     font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
@@ -322,6 +322,9 @@ function toast(msg, type = "ok") {
 
 let agents = [], runs = [], selectedAgent = null, selectedRun = null, pollTimer = null;
 
+// Vue d'accueil (hero) capturée avant tout re-rendu pour pouvoir y revenir (ex. après suppression de la tâche affichée).
+const HERO_HTML = $("#content").innerHTML;
+
 async function api(path, opts) {
   const res = await fetch(path, opts && {
     headers: { "Content-Type": "application/json" },
@@ -343,10 +346,21 @@ async function refreshSidebar() {
   $("#runs").innerHTML = runs.length ? runs.map((r) =>
     `<div class="run-item ${selectedRun === r.id ? "active" : ""}" data-run="${r.id}">
        <span class="dot ${r.status}"></span><span class="run-task">${esc(r.task)}</span><span class="badge ${r.status}">${r.status}</span>
+       <button class="del" data-del="${r.id}" title="Supprimer">×</button>
      </div>`).join("") : '<div class="side-empty">Aucune tâche pour l’instant — lancez « + Nouvelle tâche ».</div>';
 }
 
 function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+/** Retour à la vue d'accueil : réinjecte le hero (et son graphe) dans #content. */
+function showHome() {
+  stopPolling();
+  selectedRun = null; selectedAgent = null;
+  if (location.hash) location.hash = "";
+  $("#view-title").textContent = "";
+  $("#content").innerHTML = HERO_HTML;
+  renderHeroGraph();
+}
 
 function chatHistKey(id) { return `chat:${id}`; }
 
@@ -644,7 +658,23 @@ $("#agents").onclick = async (e) => {
   if (id) showChat(agents.find((a) => a.id === id));
 };
 
-$("#runs").onclick = (e) => {
+$("#runs").onclick = async (e) => {
+  const del = e.target.dataset.del;
+  if (del) {
+    e.stopPropagation();
+    const btn = e.target;
+    if (!btn.classList.contains("confirm")) {
+      btn.classList.add("confirm"); btn.textContent = "✓";
+      setTimeout(() => { btn.classList.remove("confirm"); btn.textContent = "×"; }, 3000);
+      return;
+    }
+    const { status, data } = await api(`/api/runs/${del}`, { method: "DELETE" });
+    if (status !== 200) { toast(data.error ?? "Suppression impossible", "error"); return; }
+    toast("Tâche supprimée");
+    if (selectedRun === del) showHome();
+    refreshSidebar();
+    return;
+  }
   const id = e.target.closest("[data-run]")?.dataset.run;
   if (id) showRun(id, false);
 };
